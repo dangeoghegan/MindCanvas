@@ -1,0 +1,8 @@
+{
+  "name": "MindCanvas",
+  "description": "An application to quickly and easily capture your ideas, thoughts, and plans. It supports text, images, audio, video, checklists, and is powered by AI to help you connect and understand your knowledge.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
