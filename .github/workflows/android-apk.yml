@@ -17,11 +17,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # If you don't have a good lockfile yet, caching by npm lockfile isn't helpful.
+          # Remove the next line if you'd prefer no caching:
+          # cache: 'npm'
 
-      - name: Install dependencies
+      - name: Show repo tree (sanity check)
         run: |
-          npm ci
+          pwd
+          ls -la
+
+      - name: Install deps (use npm ci if lockfile is valid, else npm install)
+        run: |
+          if npm ci --dry-run >/dev/null 2>&1; then
+            echo "Lockfile in sync → using npm ci"
+            npm ci
+          else
+            echo "No/invalid lockfile → using npm install"
+            npm install --no-fund --no-audit
+          fi
           # Ensure Capacitor + Android deps exist for CI
           npm i -D @capacitor/cli
           npm i @capacitor/core @capacitor/android
@@ -31,7 +44,6 @@ jobs:
 
       - name: Create Capacitor config (CI)
         run: |
-          mkdir -p . # just in case
           cat > capacitor.config.ts << 'EOF'
           import { CapacitorConfig } from '@capacitor/cli';
           const config: CapacitorConfig = {
@@ -60,7 +72,7 @@ jobs:
         run: |
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleDebug
+          ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK artefact
         uses: actions/upload-artifact@v4
