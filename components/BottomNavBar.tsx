@@ -25,8 +25,8 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentView, onSetView, onN
   return (
     <div className="fixed bottom-0 left-0 right-0 h-24 bg-transparent z-50 flex justify-center">
       <div className="absolute bottom-4 w-[calc(100%-2rem)] max-w-sm h-16 bg-gray-900/80 backdrop-blur-lg border border-gray-700/80 rounded-2xl flex items-center justify-around">
-        <NavItem label="Review" icon={<HomeIcon />} isActive={currentView === 'dashboard'} onClick={() => onSetView('dashboard')} />
         <NavItem label="Library" icon={<BookOpenIcon />} isActive={currentView === 'library'} onClick={() => onSetView('library')} />
+        <NavItem label="Review" icon={<HomeIcon />} isActive={currentView === 'dashboard'} onClick={() => onSetView('dashboard')} />
         
         {/* FAB Placeholder */}
         <div className="w-16" /> 
