@@ -18,7 +18,21 @@ export enum ContentBlockType {
 export interface ContentBlock {
   id: string;
   type: ContentBlockType;
-  content: any;
+  content: {
+    text?: string;
+    items?: ChecklistItem[];
+    dbKey?: string;
+    mimeType?: string;
+    name?: string;
+    description?: string;
+    isGeneratingDescription?: boolean;
+    summary?: string;
+    isGeneratingSummary?: boolean;
+    url?: string;
+    embedUrl?: string;
+    title?: string;
+    photoTakenAt?: string;
+  };
   createdAt: string;
 }
 
@@ -27,6 +41,10 @@ export interface Note {
   title: string;
   createdAt: string;
   content: ContentBlock[];
+  titleIsGenerating?: boolean;
+  tags?: string[];
+  tagsAreGenerating?: boolean;
+  people?: string[];
 }
 
 export interface ChatMessageSourceNote {
@@ -40,4 +58,11 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   sources?: ChatMessageSourceNote[];
+}
+
+export type RetentionPeriod = '1-day' | '3-days' | '1-week' | '1-month' | '6-months' | '1-year';
+
+export interface AutoDeleteRule {
+  tag: string;
+  period: RetentionPeriod;
 }

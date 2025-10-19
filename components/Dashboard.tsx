@@ -90,7 +90,11 @@ const Dashboard: React.FC<{ notes: Note[] }> = ({ notes }) => {
 
         const handler = setTimeout(async () => {
             const notesContext = filteredNotes.map(getNoteContentAsString).join('\n\n---\n\n');
-            const result = await generateReviewSummary(notesContext);
+            // FIX: The 'generateReviewSummary' function requires a 'people' argument, which was missing.
+            // This fix gathers the people from the filtered notes and passes them to the function for a more contextual summary.
+            // FIX: Explicitly set the type of the Set to <string> to fix a TypeScript inference issue where `peopleInPeriod` was incorrectly inferred as `unknown[]`.
+            const peopleInPeriod = Array.from(new Set<string>(filteredNotes.flatMap(n => n.people || [])));
+            const result = await generateReviewSummary(notesContext, period, peopleInPeriod);
             setSummary(result);
             setIsLoading(false);
         }, 500);
@@ -98,7 +102,9 @@ const Dashboard: React.FC<{ notes: Note[] }> = ({ notes }) => {
         return () => {
             clearTimeout(handler);
         };
-    }, [filteredNotes]);
+    // FIX: Added 'period' to the dependency array.
+    // This ensures that the effect re-runs to fetch a new summary whenever the user selects a different time period (e.g., from 'weekly' to 'monthly').
+    }, [filteredNotes, period]);
 
     return (
         <div className="flex-1 bg-[#1C1C1C] text-white p-6 md:p-12 overflow-y-auto">

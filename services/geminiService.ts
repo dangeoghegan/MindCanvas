@@ -5,26 +5,75 @@ import { ChecklistItem } from '../types';
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // FIX: Implemented function to generate a review summary from note context using Gemini.
-export const generateReviewSummary = async (notesContext: string): Promise<string> => {
+export const generateReviewSummary = async (notesContext: string, period: string, people: string[]): Promise<string> => {
   if (!notesContext.trim()) {
     return "You didn't have any notes in this period. Capture some thoughts and come back later to reflect!";
   }
-
-  const prompt = `Based on the following notes, provide a reflective summary of key themes, accomplishments, and potential areas for growth. Format the output with markdown, using headings for different sections.
-
-  Notes:
-  ---
-  ${notesContext}
-  ---
   
-  Your summary should be insightful and encouraging.`;
+  const wordCountMap = {
+      'weekly': '160–220 words',
+      'monthly': '220–280 words',
+      'quarterly': '280–340 words',
+      'semi-annually': '280–340 words',
+      'yearly': '280–340 words',
+  };
+  const wordCount = wordCountMap[period as keyof typeof wordCountMap] || '220–280 words';
+
+  let systemInstruction = `You are a reflective AI assistant, MindCanvas. Your task is to analyse a user's notes from a specific period and generate a structured, insightful review. Adhere strictly to the provided format, tone, and rules.
+
+Your output MUST be a single block of Markdown.
+
+**Structure & Formatting:**
+
+1.  **Reflection:** Start with a single blockquote containing one insightful sentence.
+    Example: \`> I'm learning that clarity turns input into insight.\`
+
+2.  **Top 3 Moments:** A Level-2 Markdown header: \`## ⚡ Top 3 Moments\`. Followed by exactly three moments. Each moment starts with a Level-3 header: \`### Title of Moment\`.
+    - Under the title, include the following on separate lines:
+      - \`_Source/Type_\` (in italics)
+      - \`**Why it matters:** [explanation]\`
+      - \`**Learning:** [takeaway]\`
+      - \`**Signal:**\` followed by one or more inline code blocks for tags (e.g., \`\`#media-literacy\`\`).
+      - \`**Valence:** [emoji, e.g., 👍, 😬, ✅]\`
+
+3.  **Key Learnings:** A Level-2 Markdown header: \`## 🧠 Key Learnings\`. Followed by a bulleted list of 3-5 compact insights. Each bullet should be a rule or pattern.
+    - Format: \`- **Pattern Name:** Insight.\`
+
+4.  **Trends:** A Level-2 Markdown header: \`## 📈 Trends\`. Followed by a bulleted list of up to 3 one-line qualitative shifts. Use italics for emphasis and emojis (📈, 📉, steady).
+    - Format: \`- Focus tilting toward _leadership clarity_.\`
+
+**Writing Rules:**
+- Use Australian English spelling only (e.g., 'summarise', 'colour').
+- The total review length must be **${wordCount}**. Do not exceed this.
+- As notes increase, increase information density, not word count. Prioritise high-salience ideas.
+- Use short noun phrases, active verbs, and no filler.
+
+**Tone & Voice:**
+- Calm, clear, and confident—like a "future-you" coaching "present-you".
+- Conversational, not corporate. Avoid clichés ("journey", "growth mindset").
+- Every sentence must feel earned and insightful.
+- Write as if for a private reflection dashboard.
+`;
+
+    if (people && people.length > 0) {
+        systemInstruction += `\n**Contextualization:** The notes from this period involve the following people: ${people.join(', ')}. You should incorporate these names when summarizing moments or learnings they were part of to provide better context.`;
+    }
+
+  const prompt = `Here are my notes for the last ${period}. Please generate my review based on them.
+
+Notes:
+---
+${notesContext}
+---
+
+Follow the instructions precisely and generate the review in the specified markdown format.`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        systemInstruction: "You are a helpful assistant that creates insightful summaries from user's notes to help them reflect on their progress and thoughts."
+        systemInstruction: systemInstruction
       }
     });
     return response.text;
@@ -84,18 +133,18 @@ export const summarizeAudio = async (audioBase64: string, mimeType: string): Pro
         inlineData: { data: audioBase64, mimeType },
     };
     const textPart = {
-        text: "Please transcribe and then provide a concise summary of the following audio."
+        text: "Your task is to analyze the provided audio.\n1. **Transcribe:** First, provide a full and accurate transcription of the audio.\n2. **Summarize:** After the transcription, add a `---` separator. Then, using the transcription you just generated, provide a concise summary in 25 words or less."
     };
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-pro',
             contents: { parts: [audioPart, textPart] },
         });
         return response.text;
     } catch (error) {
         console.error('Error summarizing audio:', error);
-        return 'Failed to summarize audio.';
+        throw error;
     }
 };
 
@@ -123,18 +172,18 @@ export const summarizeVideo = async (videoBase64: string, mimeType: string): Pro
         inlineData: { data: videoBase64, mimeType },
     };
     const textPart = {
-        text: "Please provide a concise summary of this video."
+        text: "Your task is to analyze the provided video.\n1. **Transcribe:** First, provide a full and accurate transcription of all spoken words in the video.\n2. **Summarize:** After the transcription, add a `---` separator. Then, using both the visual content of the video and the transcription you just generated, provide a concise summary of the video in 25 words or less. The summary should describe the key actions, subjects, and overall theme.\nIf there is no speech, simply write 'No speech detected.' for the transcription part and then proceed with the summary."
     };
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-pro',
             contents: { parts: [videoPart, textPart] },
         });
         return response.text;
     } catch (error) {
         console.error('Error summarizing video:', error);
-        return 'Failed to summarize video.';
+        throw error;
     }
 };
 
@@ -144,7 +193,7 @@ export const generateImageDescription = async (imageBase64: string, mimeType: st
         inlineData: { data: imageBase64, mimeType },
     };
     const textPart = {
-        text: "Provide a concise summary of this image. Describe the main subject, setting, and any notable actions or features."
+        text: "Provide a concise summary of this image in 25 words or less. Describe the main subject, setting, and any notable actions or features."
     };
 
     try {
@@ -155,13 +204,19 @@ export const generateImageDescription = async (imageBase64: string, mimeType: st
         return response.text;
     } catch (error) {
         console.error('Error generating image description:', error);
-        return '';
+        throw error;
     }
 };
 
 // FIX: Implemented function to generate a title for a note.
-export const generateTitle = async (noteContext: string): Promise<string> => {
-    const prompt = `Based on the following note content, suggest a short, descriptive title (5 words or less). Only return the title text, without any prefixes like "Title:".
+export const generateTitle = async (noteContext: string, people: string[]): Promise<string> => {
+    let prompt = `Based on the following note content, suggest a short, descriptive title (5 words or less). Only return the title text, without any prefixes like "Title:".`;
+
+    if (people && people.length > 0) {
+        prompt += `\n\nThe note involves these people: ${people.join(', ')}. You should incorporate their names into the title if the content is about them.`;
+    }
+
+    prompt += `
 
     Note Content:
     ---
@@ -173,10 +228,14 @@ export const generateTitle = async (noteContext: string): Promise<string> => {
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
-        return response.text.replace(/["']/g, "").trim();
+        const title = response.text.replace(/["']/g, "").trim();
+        if (!title) {
+            throw new Error("Generated title was empty");
+        }
+        return title;
     } catch (error) {
         console.error('Error generating title:', error);
-        return 'Untitled Note';
+        throw error;
     }
 };
 
@@ -276,7 +335,7 @@ Return only the JSON object.`;
 };
 
 export const generateVideoSummaryFromUrl = async (url: string): Promise<{ summary: string }> => {
-    const prompt = `Based on the URL of this video, which is likely from a platform like YouTube or Vimeo, generate a concise one or two-sentence summary of what the video is likely about. Focus on creating a plausible summary even if you cannot access the content directly.
+    const prompt = `Generate a concise summary (25 words or less) of what this video is likely about, based on its URL. The video is likely from a platform like YouTube or Vimeo, so create a plausible summary even if you cannot access the content directly.
     URL: "${url}"
     Return only a JSON object with a "summary" key.`;
     try {
@@ -290,7 +349,7 @@ export const generateVideoSummaryFromUrl = async (url: string): Promise<{ summar
                     properties: {
                         summary: {
                             type: Type.STRING,
-                            description: "A one or two-sentence summary of the video's likely content."
+                            description: "A concise summary (25 words or less) of the video's likely content."
                         }
                     },
                     required: ['summary']
@@ -304,3 +363,36 @@ export const generateVideoSummaryFromUrl = async (url: string): Promise<{ summar
         return { summary: 'Could not generate a summary for this video.' };
     }
 }
+
+export const generateTagsForNote = async (noteContext: string): Promise<string[]> => {
+    const prompt = `Analyze the following note content and generate 3 to 5 relevant tags. Tags should be concise, lowercase, and use hyphens for multiple words (e.g., "project-management"). Return the tags as a JSON array of strings.
+
+    Note Content:
+    ---
+    ${noteContext}
+    ---`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.STRING,
+                        description: 'A relevant tag for the note content.'
+                    }
+                }
+            }
+        });
+        const jsonStr = response.text.trim();
+        const tags = JSON.parse(jsonStr);
+        // Sanitize tags: lowercase and replace spaces with hyphens
+        return tags.map((tag: string) => tag.toLowerCase().replace(/\s+/g, '-'));
+    } catch (error) {
+        console.error('Error generating tags:', error);
+        return []; // Return empty array on failure
+    }
+};

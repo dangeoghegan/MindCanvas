@@ -15,17 +15,13 @@ export function useLocalStorage<T>(key: string, initialValue: T): [T, (value: Se
   });
 
   useEffect(() => {
-    const handler = setTimeout(() => {
-      try {
-        window.localStorage.setItem(key, JSON.stringify(storedValue));
-      } catch (error) {
-        console.error(error);
-      }
-    }, 1000);
-
-    return () => {
-      clearTimeout(handler);
-    };
+    // State is now saved to localStorage immediately on any change,
+    // ensuring background task state is persisted reliably.
+    try {
+      window.localStorage.setItem(key, JSON.stringify(storedValue));
+    } catch (error) {
+      console.error(error);
+    }
   }, [storedValue, key]);
 
   const setValue = (value: SetStateAction<T>) => {

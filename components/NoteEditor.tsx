@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Note, ContentBlock, ContentBlockType, ChecklistItem } from '../types';
 import ContentBlockComponent from './ContentBlockComponent';
-import { SparklesIcon, MicrophoneIcon, StopIcon, CameraIcon, ArrowLeftIcon, TrashIcon, PaperClipIcon, CodeBracketIcon } from './icons';
-import { generateChecklistFromAudio, summarizeAudio, askQuestionAboutImage, summarizeVideo, generateImageDescription, generateTitle } from '../services/geminiService';
+import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon } from './icons';
+import { generateChecklistFromAudio, askQuestionAboutImage } from '../services/geminiService';
 // FIX: Imported 'getMedia' to resolve 'Cannot find name' error.
 import { saveMedia, deleteMedia, getMedia } from '../services/dbService';
 
@@ -11,6 +11,8 @@ interface NoteEditorProps {
   updateNote: (updatedNote: Note) => void;
   deleteNote: (noteId: string) => void;
   onClose: () => void;
+  masterPeopleList: string[];
+  onAddPersonToMasterList: (name: string) => void;
 }
 
 const fileToDataUrl = (file: File): Promise<string> => {
@@ -22,38 +24,59 @@ const fileToDataUrl = (file: File): Promise<string> => {
     });
 };
 
-const getNoteContentAsString = (note: Note): string => {
-    return note.content.map(block => {
-        switch (block.type) {
-            case ContentBlockType.HEADER:
-            case ContentBlockType.TEXT:
-                return block.content.text || '';
-            case ContentBlockType.CHECKLIST:
-                return (block.content.items || []).map((item: ChecklistItem) => `- ${item.text}`).join('\n');
-            case ContentBlockType.IMAGE:
-                return block.content.description ? `[Image: ${block.content.description}]` : '';
-            case ContentBlockType.VIDEO:
-                 return block.content.summary ? `[Video Summary: ${block.content.summary}]` : (block.content.description ? `[Video: ${block.content.description}]` : '');
-            default:
-                return '';
+const getExifDateTime = (file: File): Promise<string | null> => {
+    return new Promise((resolve) => {
+        const EXIF = (window as any).EXIF;
+        if (!EXIF) {
+            console.warn("EXIF.js library not found.");
+            return resolve(null);
         }
-    }).filter(text => text.trim() !== '').join('\n\n');
+
+        EXIF.getData(file, function(this: any) {
+            const dateTime = EXIF.getTag(this, "DateTimeOriginal");
+            if (dateTime) {
+                try {
+                    const parts = dateTime.split(' ');
+                    const dateParts = parts[0].split(':');
+                    const timeParts = parts.length > 1 ? parts[1].split(':') : ['00', '00', '00'];
+                    
+                    const isoDate = new Date(
+                        parseInt(dateParts[0], 10),
+                        parseInt(dateParts[1], 10) - 1,
+                        parseInt(dateParts[2], 10),
+                        parseInt(timeParts[0], 10),
+                        parseInt(timeParts[1], 10),
+                        parseInt(timeParts[2], 10)
+                    ).toISOString();
+                    resolve(isoDate);
+                } catch(e) {
+                    console.error("Error parsing EXIF date:", e);
+                    resolve(null);
+                }
+            } else {
+                resolve(null);
+            }
+        });
+    });
 };
 
-const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, onClose }) => {
+
+const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, onClose, masterPeopleList, onAddPersonToMasterList }) => {
   const [isAiChecklistLoading, setIsAiChecklistLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   
   const [isRecordingForChecklist, setIsRecordingForChecklist] = useState(false);
   const [checklistRecordingTime, setChecklistRecordingTime] = useState(0);
 
-  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [askingImageAIBlockId, setAskingImageAIBlockId] = useState<string | null>(null);
-  const [isGeneratingNoteTitle, setIsGeneratingNoteTitle] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
   const [dictatedBlockId, setDictatedBlockId] = useState<string | null>(null);
+
+  const [personInput, setPersonInput] = useState('');
+  const [showPersonSuggestions, setShowPersonSuggestions] = useState(false);
+  const personInputRef = useRef<HTMLInputElement>(null);
+
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -63,8 +86,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   const isDictatingRef = useRef(false);
   const finalTranscriptRef = useRef('');
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const captureInputRef = useRef<HTMLInputElement>(null);
+  const genericFileInputRef = useRef<HTMLInputElement>(null);
+
 
   const noteRef = useRef(note);
   useEffect(() => {
@@ -80,36 +103,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   useEffect(() => {
     dictatedBlockIdRef.current = dictatedBlockId;
   }, [dictatedBlockId]);
-
-
-  useEffect(() => {
-    const handler = setTimeout(async () => {
-        const hasMeaningfulContent = note.content.some(b => {
-            if (b.type === ContentBlockType.TEXT || b.type === ContentBlockType.HEADER) return (b.content.text || '').length > 10;
-            if (b.type === ContentBlockType.CHECKLIST) return (b.content.items || []).some((i: ChecklistItem) => (i.text || '').length > 0);
-            return !!b.content.url || !!b.content.dbKey;
-        });
-
-        if (note.title === 'Untitled Note' && hasMeaningfulContent && !isGeneratingNoteTitle) {
-            setIsGeneratingNoteTitle(true);
-            try {
-                const noteContext = getNoteContentAsString(note);
-                if (noteContext.trim().length > 15) { // Only generate if there's enough context
-                    const newTitle = await generateTitle(noteContext);
-                    if (newTitle && noteRef.current.title === 'Untitled Note') {
-                        updateNote({ ...noteRef.current, title: newTitle });
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to generate note title:", error);
-            } finally {
-                setIsGeneratingNoteTitle(false);
-            }
-        }
-    }, 2000);
-
-    return () => clearTimeout(handler);
-  }, [note.content, note.title, isGeneratingNoteTitle, updateNote]);
 
 
   useEffect(() => {
@@ -345,36 +338,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
                 const dataUrl = reader.result as string;
+                const blockId = self.crypto.randomUUID();
                 
-                const newAudioBlock = addBlock(ContentBlockType.AUDIO, { mimeType: 'audio/webm', dbKey: self.crypto.randomUUID() }, undefined, true) as ContentBlock;
+                await saveMedia(blockId, { url: dataUrl, mimeType: 'audio/webm' });
+                const newAudioBlock = addBlock(ContentBlockType.AUDIO, { dbKey: blockId, mimeType: 'audio/webm' }, undefined, true) as ContentBlock;
                 updateNote({ ...noteRef.current, content: [...noteRef.current.content, newAudioBlock]});
-                await saveMedia(newAudioBlock.id, { url: dataUrl, mimeType: 'audio/webm' });
-
-                setIsSummarizing(true);
-                try {
-                    const pureBase64 = dataUrl.split(',')[1];
-                    const summary = await summarizeAudio(pureBase64, 'audio/webm');
-                    
-                    const headerBlock = addBlock(ContentBlockType.HEADER, { text: 'Audio Summary' }, undefined, true) as ContentBlock;
-                    const summaryBlock = addBlock(ContentBlockType.TEXT, { text: summary }, undefined, true) as ContentBlock;
-
-                    const currentNote = noteRef.current;
-                    const newContent = [...currentNote.content];
-                    const audioBlockIndex = newContent.findIndex(b => b.id === newAudioBlock.id);
-                    if (audioBlockIndex !== -1) {
-                        newContent.splice(audioBlockIndex + 1, 0, headerBlock, summaryBlock);
-                    } else {
-                         newContent.push(headerBlock, summaryBlock);
-                    }
-                    updateNote({ ...currentNote, content: newContent });
-
-                } catch (error) {
-                    console.error('Failed to summarize audio', error);
-                    const errorBlock = addBlock(ContentBlockType.TEXT, { text: 'Failed to generate audio summary.' }, undefined, true) as ContentBlock;
-                    updateNote({ ...noteRef.current, content: [...noteRef.current.content, errorBlock] });
-                } finally {
-                    setIsSummarizing(false);
-                }
             };
             stream.getTracks().forEach(track => track.stop());
         };
@@ -401,113 +369,79 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    // Create a unique ID for the block and the DB entry
-    const blockId = self.crypto.randomUUID();
-    let dataUrl: string;
+    const newBlocks: ContentBlock[] = [];
 
-    try {
-        dataUrl = await fileToDataUrl(file);
-    } catch (error) {
-        console.error("Failed to read file:", error);
-        alert("There was an error reading the file.");
-        return;
-    }
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const blockId = self.crypto.randomUUID();
+        let dataUrl: string;
 
-    // Save the media to IndexedDB first.
-    try {
-        await saveMedia(blockId, { url: dataUrl, mimeType: file.type, name: file.name });
-    } catch (error) {
-        console.error("Failed to save media to IndexedDB:", error);
-        alert("Could not save the file. The database might be full or corrupted.");
-        return;
-    }
+        try {
+            dataUrl = await fileToDataUrl(file);
+        } catch (error) {
+            console.error("Failed to read file:", error);
+            continue;
+        }
 
-    // Now that it's saved, create the block and update the note.
-    const fileType = file.type;
-    let blockType: ContentBlockType;
-    
-    if (fileType.startsWith('image/')) {
-        blockType = ContentBlockType.IMAGE;
-    } else if (fileType.startsWith('video/')) {
-        blockType = ContentBlockType.VIDEO;
-    } else if (fileType.startsWith('audio/')) {
-        blockType = ContentBlockType.AUDIO;
-    } else {
-        blockType = ContentBlockType.FILE;
-    }
+        try {
+            await saveMedia(blockId, { url: dataUrl, mimeType: file.type, name: file.name });
+        } catch (error) {
+            console.error("Failed to save media to IndexedDB:", error);
+            continue;
+        }
 
-    const newBlock: ContentBlock = {
-        id: blockId,
-        type: blockType,
-        createdAt: new Date().toISOString(),
-        content: {
+        const fileType = file.type;
+        let blockType: ContentBlockType;
+        const content: ContentBlock['content'] = {
             dbKey: blockId,
             mimeType: file.type,
             name: file.name,
+        };
+        
+        if (fileType.startsWith('image/jpeg') || fileType.startsWith('image/tiff')) {
+            blockType = ContentBlockType.IMAGE;
+            try {
+                const photoTakenAt = await getExifDateTime(file);
+                if (photoTakenAt) {
+                    content.photoTakenAt = photoTakenAt;
+                }
+            } catch (exifError) {
+                console.warn("Could not read EXIF data for image:", exifError);
+            }
+        } else if (fileType.startsWith('image/')) {
+            blockType = ContentBlockType.IMAGE;
+        } else if (fileType.startsWith('video/')) {
+            blockType = ContentBlockType.VIDEO;
+        } else if (fileType.startsWith('audio/')) {
+            blockType = ContentBlockType.AUDIO;
+        } else {
+            blockType = ContentBlockType.FILE;
+        }
+
+        const newBlock: ContentBlock = {
+            id: blockId,
+            type: blockType,
+            createdAt: new Date().toISOString(),
+            content: content
+        };
+        newBlocks.push(newBlock);
+    }
+    
+    if (newBlocks.length > 0) {
+      updateNote({ ...noteRef.current, content: [...noteRef.current.content, ...newBlocks] });
+    }
+    
+    e.target.value = '';
+  };
+    
+    const handleGenericFileClick = () => {
+        if (genericFileInputRef.current) {
+            genericFileInputRef.current.click();
         }
     };
-
-    updateNote({ ...noteRef.current, content: [...noteRef.current.content, newBlock] });
-    e.target.value = ''; // Reset the file input
-
-    // --- Start background AI processing ---
-    const base64data = dataUrl.split(',')[1];
-    if (fileType.startsWith('image/')) {
-        try {
-            const description = await generateImageDescription(base64data, fileType);
-            const currentNote = noteRef.current;
-            const finalContent = currentNote.content.map(b => b.id === blockId ? { ...b, content: { ...b.content, description }} : b);
-            updateNoteRef.current({ ...currentNote, content: finalContent });
-        } catch(error) { console.error("Error generating image description:", error); }
-    } else if (fileType.startsWith('video/')) {
-        setIsProcessingVideo(true);
-        try {
-            const summary = await summarizeVideo(base64data, fileType);
-            const currentNote = noteRef.current;
-            const videoBlockIndex = currentNote.content.findIndex(b => b.id === blockId);
-            const headerBlock = addBlock(ContentBlockType.HEADER, { text: 'Video Summary' }, videoBlockIndex + 1, true) as ContentBlock;
-            const summaryBlock = addBlock(ContentBlockType.TEXT, { text: summary }, videoBlockIndex + 2, true) as ContentBlock;
-            const finalContent = currentNote.content.map(b => b.id === blockId ? { ...b, content: { ...b.content, summary }} : b);
-            
-            const contentWithVideo = [...finalContent];
-            if (videoBlockIndex !== -1) {
-              contentWithVideo.splice(videoBlockIndex + 1, 0, headerBlock, summaryBlock);
-            } else {
-              contentWithVideo.push(headerBlock, summaryBlock);
-            }
-            updateNoteRef.current({ ...currentNote, content: contentWithVideo });
-        } catch (error) {
-            console.error("Error summarizing video:", error);
-            addBlock(ContentBlockType.TEXT, { text: 'Failed to generate video summary.' });
-        } finally {
-            setIsProcessingVideo(false);
-        }
-    } else if (fileType.startsWith('audio/')) {
-        setIsSummarizing(true);
-        try {
-            const summary = await summarizeAudio(base64data, fileType);
-            const currentNote = noteRef.current;
-            const audioBlockIndex = currentNote.content.findIndex(b => b.id === blockId);
-            const headerBlock = addBlock(ContentBlockType.HEADER, { text: 'Audio Summary' }, audioBlockIndex + 1, true) as ContentBlock;
-            const summaryBlock = addBlock(ContentBlockType.TEXT, { text: summary }, audioBlockIndex + 2, true) as ContentBlock;
-
-            const newContent = [...currentNote.content];
-            if (audioBlockIndex !== -1) {
-                newContent.splice(audioBlockIndex + 1, 0, headerBlock, summaryBlock);
-            } else {
-                newContent.push(headerBlock, summaryBlock);
-            }
-            updateNoteRef.current({ ...currentNote, content: newContent });
-        } catch (error) {
-            console.error('Failed to summarize audio', error);
-        } finally {
-            setIsSummarizing(false);
-        }
-    }
-  };
 
   const handleAskAIAboutImage = async (blockId: string, question: string) => {
     const imageBlock = note.content.find(b => b.id === blockId);
@@ -515,11 +449,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
 
     setAskingImageAIBlockId(blockId);
     try {
+        if (!imageBlock.content.dbKey) throw new Error("Media not found in DB");
         const media = await getMedia(imageBlock.content.dbKey);
         if (!media || !media.url) throw new Error("Media not found in DB");
 
         const base64data = media.url.split(',')[1];
-        const answer = await askQuestionAboutImage(base64data, imageBlock.content.mimeType, question);
+        const answer = await askQuestionAboutImage(base64data, imageBlock.content.mimeType || '', question);
         
         const imageBlockIndex = noteRef.current.content.findIndex(b => b.id === blockId);
         const answerBlock = addBlock(ContentBlockType.TEXT, { text: answer }, undefined, true) as ContentBlock;
@@ -583,7 +518,47 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
     }
   };
 
-  const isAiBusy = isAiChecklistLoading || isSummarizing || isProcessingVideo || askingImageAIBlockId !== null || isGeneratingNoteTitle;
+  const handleAddPerson = (personName: string) => {
+    const name = personName.trim();
+    if (name && !(note.people || []).includes(name)) {
+        const updatedPeople = [...(note.people || []), name];
+        updateNote({ ...note, people: updatedPeople });
+        onAddPersonToMasterList(name);
+    }
+    setPersonInput('');
+    setShowPersonSuggestions(false);
+  };
+
+  const handleRemovePerson = (personToRemove: string) => {
+      const updatedPeople = (note.people || []).filter(p => p !== personToRemove);
+      updateNote({ ...note, people: updatedPeople });
+  };
+
+  const handlePersonInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setPersonInput(e.target.value);
+      setShowPersonSuggestions(true);
+  };
+
+  const handlePersonInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter' && personInput) {
+          e.preventDefault();
+          handleAddPerson(personInput);
+      }
+  };
+
+  const filteredPersonSuggestions = useMemo(() => {
+    const availablePeople = masterPeopleList.filter(
+        p => !(note.people || []).includes(p)
+    );
+    if (!personInput) {
+        return availablePeople;
+    }
+    return availablePeople.filter(
+        p => p.toLowerCase().includes(personInput.toLowerCase())
+    );
+  }, [personInput, masterPeopleList, note.people]);
+
+  const isAiBusy = isAiChecklistLoading || askingImageAIBlockId !== null || note.titleIsGenerating || note.tagsAreGenerating;
 
   return (
     <div className="flex-1 bg-[#1C1C1C] text-white flex flex-col">
@@ -605,7 +580,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                   placeholder="Untitled Note"
                   className="text-3xl font-bold bg-transparent focus:outline-none w-full text-white placeholder-gray-600"
                 />
-                {isGeneratingNoteTitle && (
+                {note.titleIsGenerating && (
                     <div className="absolute right-2 top-1/2 -translate-y-1/2" title="AI is generating a title for this note">
                         <SparklesIcon className="w-6 h-6 text-blue-400 animate-pulse" />
                     </div>
@@ -625,98 +600,142 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
               ))}
             </div>
 
-            <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
-            <input type="file" accept="image/*,video/*" capture="environment" ref={captureInputRef} onChange={handleFileSelect} className="hidden" />
+            <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
             
-            <div className="mt-8 pt-6 border-t border-gray-800 flex items-center gap-2 text-gray-400 flex-wrap">
-               <span className="text-sm font-semibold">ADD BLOCK:</span>
-               <button onClick={() => addBlock(ContentBlockType.HEADER)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Header</button>
-               <button onClick={() => addBlock(ContentBlockType.TEXT)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Text</button>
-               <button onClick={() => addBlock(ContentBlockType.CHECKLIST)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Checklist</button>
-               <button onClick={() => addBlock(ContentBlockType.EMBED)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Embed</button>
-            </div>
+            <div className="mt-8 pt-6 border-t border-gray-800 space-y-6">
+                {(note.tagsAreGenerating || (note.tags && note.tags.length > 0)) && (
+                    <div className="flex items-start gap-3 flex-wrap">
+                        <TagIcon className="w-5 h-5 text-gray-500 flex-shrink-0 mt-1.5" />
+                        <div className="flex flex-wrap gap-2">
+                          {note.tagsAreGenerating && (
+                              <div className="flex items-center gap-2 text-sm text-gray-500 italic">
+                                  <SparklesIcon className="w-4 h-4 animate-pulse" />
+                                  <span>AI is generating tags...</span>
+                              </div>
+                          )}
+                          {note.tags && note.tags.map(tag => (
+                              <span key={tag} className="bg-gray-800 text-gray-300 text-xs font-medium px-2.5 py-1 rounded-full">
+                                  #{tag}
+                              </span>
+                          ))}
+                        </div>
+                    </div>
+                )}
 
-            <div className="mt-4 flex items-center gap-4 flex-wrap">
-                <button 
-                  onClick={isRecordingForChecklist ? handleStopChecklistRecording : handleStartChecklistRecording} 
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecordingForChecklist ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
-                  disabled={isRecording || isAiBusy || isDictating}
-                >
-                    {isRecordingForChecklist ? (
-                        <>
-                            <StopIcon className="w-5 h-5"/>
-                            <span>Stop ({formatTime(checklistRecordingTime)})</span>
-                        </>
-                    ) : (
-                        <>
-                            <SparklesIcon className="w-5 h-5"/>
-                            <span>AI Checklist</span>
-                        </>
-                    )}
-                     {isAiChecklistLoading && <span className="animate-spin text-lg">⚙️</span>}
-                </button>
-                <button 
-                    onClick={isRecording ? handleStopRecording : handleStartRecording} 
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecording ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                    disabled={isRecordingForChecklist || isAiBusy || isDictating}
-                >
-                    {isRecording ? (
-                        <>
-                            <StopIcon className="w-5 h-5" />
-                            <span>Stop Recording ({formatTime(recordingTime)})</span>
-                        </>
-                    ) : (
-                        <>
-                            <MicrophoneIcon className="w-5 h-5" />
-                            <span>Record Audio</span>
-                        </>
-                    )}
-                </button>
-                 <button 
-                    onClick={handleToggleDictation} 
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isDictating ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                    disabled={isRecording || isRecordingForChecklist || isAiBusy}
-                >
-                    {isDictating ? (
-                        <>
-                            <StopIcon className="w-5 h-5" />
-                            <span>Stop Dictation</span>
-                        </>
-                    ) : (
-                        <>
-                            <MicrophoneIcon className="w-5 h-5" />
-                            <span>Dictate</span>
-                        </>
-                    )}
-                </button>
-                <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
-                    disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
-                >
-                    <PaperClipIcon className="w-5 h-5" />
-                    <span>File</span>
-                </button>
-                <button 
-                    onClick={() => captureInputRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
-                    disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
-                >
-                    <CameraIcon className="w-5 h-5" />
-                    <span>Camera</span>
-                </button>
-                {isSummarizing && (
-                    <div className="flex items-center gap-2 text-gray-400">
-                        <span className="animate-spin text-lg">⚙️</span>
-                        <span>Summarizing audio...</span>
+                <div className="flex items-start gap-3 flex-wrap">
+                    <UserIcon className="w-5 h-5 text-gray-500 flex-shrink-0 mt-1.5" />
+                    <div className="flex-1 relative">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            {(note.people || []).map(person => (
+                                <span key={person} className="flex items-center gap-1.5 bg-green-800/50 text-green-300 text-xs font-medium pl-2.5 pr-1.5 py-1 rounded-full">
+                                    {person}
+                                    <button onClick={() => handleRemovePerson(person)} className="hover:bg-green-700/50 rounded-full p-0.5">
+                                        <XMarkIcon className="w-3 h-3" />
+                                    </button>
+                                </span>
+                            ))}
+                            <div className="relative flex-1 min-w-[120px]">
+                                <input
+                                    ref={personInputRef}
+                                    type="text"
+                                    value={personInput}
+                                    onChange={handlePersonInputChange}
+                                    onKeyDown={handlePersonInputKeyDown}
+                                    onFocus={() => setShowPersonSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowPersonSuggestions(false), 200)}
+                                    placeholder="Add person..."
+                                    className="bg-transparent text-sm placeholder-gray-500 focus:outline-none py-1"
+                                />
+                                {showPersonSuggestions && filteredPersonSuggestions.length > 0 && (
+                                    <div className="absolute z-10 bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                        <ul className="py-1">
+                                            {filteredPersonSuggestions.map(suggestion => (
+                                                <li
+                                                    key={suggestion}
+                                                    onMouseDown={() => handleAddPerson(suggestion)}
+                                                    className="text-gray-300 cursor-pointer select-none relative py-2 px-3 hover:bg-gray-700"
+                                                >
+                                                    {suggestion}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                )}
-                {isProcessingVideo && (
-                    <div className="flex items-center gap-2 text-gray-400">
-                        <span className="animate-spin text-lg">⚙️</span>
-                        <span>Summarizing video...</span>
-                    </div>
-                )}
+                </div>
+                
+                <div className="flex items-center gap-2 text-gray-400 flex-wrap">
+                   <span className="text-sm font-semibold">ADD BLOCK:</span>
+                   <button onClick={() => addBlock(ContentBlockType.HEADER)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Header</button>
+                   <button onClick={() => addBlock(ContentBlockType.TEXT)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Text</button>
+                   <button onClick={() => addBlock(ContentBlockType.CHECKLIST)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Checklist</button>
+                   <button onClick={() => addBlock(ContentBlockType.EMBED)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Embed</button>
+                </div>
+
+                <div className="flex items-center gap-4 flex-wrap">
+                    <button 
+                      onClick={isRecordingForChecklist ? handleStopChecklistRecording : handleStartChecklistRecording} 
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecordingForChecklist ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+                      disabled={isRecording || isAiBusy || isDictating}
+                    >
+                        {isRecordingForChecklist ? (
+                            <>
+                                <StopIcon className="w-5 h-5"/>
+                                <span>Stop ({formatTime(checklistRecordingTime)})</span>
+                            </>
+                        ) : (
+                            <>
+                                <SparklesIcon className="w-5 h-5"/>
+                                <span>AI Checklist</span>
+                            </>
+                        )}
+                         {isAiChecklistLoading && <span className="animate-spin text-lg">⚙️</span>}
+                    </button>
+                    <button 
+                        onClick={isRecording ? handleStopRecording : handleStartRecording} 
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecording ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                        disabled={isRecordingForChecklist || isAiBusy || isDictating}
+                    >
+                        {isRecording ? (
+                            <>
+                                <StopIcon className="w-5 h-5" />
+                                <span>Stop Recording ({formatTime(recordingTime)})</span>
+                            </>
+                        ) : (
+                            <>
+                                <MicrophoneIcon className="w-5 h-5" />
+                                <span>Record Audio</span>
+                            </>
+                        )}
+                    </button>
+                     <button 
+                        onClick={handleToggleDictation} 
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isDictating ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                        disabled={isRecording || isRecordingForChecklist || isAiBusy}
+                    >
+                        {isDictating ? (
+                            <>
+                                <StopIcon className="w-5 h-5" />
+                                <span>Stop Dictation</span>
+                            </>
+                        ) : (
+                            <>
+                                <MicrophoneIcon className="w-5 h-5" />
+                                <span>Dictate</span>
+                            </>
+                        )}
+                    </button>
+                    <button 
+                        onClick={handleGenericFileClick}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
+                        disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
+                    >
+                        <PaperClipIcon className="w-5 h-5" />
+                        <span>Attach File</span>
+                    </button>
+                </div>
             </div>
         </div>
       </div>

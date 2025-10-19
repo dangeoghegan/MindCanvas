@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useRef, KeyboardEvent, useMemo } from 'react';
 import { ContentBlock, ContentBlockType, ChecklistItem } from '../types';
 import { TrashIcon, SparklesIcon, PaperAirplaneIcon, StopIcon, PaperClipIcon, LinkIcon, XMarkIcon } from './icons';
 import { getMedia } from '../services/dbService';
@@ -60,14 +60,14 @@ const ChecklistBlock: React.FC<{
         const newItems = items.map((item: ChecklistItem) =>
             item.id === itemId ? { ...item, text: newText } : item
         );
-        updateBlock({ ...block, content: { items: newItems } });
+        updateBlock({ ...block, content: { ...block.content, items: newItems } });
     };
 
     const handleToggleCheck = (itemId: string) => {
         const newItems = items.map((item: ChecklistItem) =>
             item.id === itemId ? { ...item, checked: !item.checked } : item
         );
-        updateBlock({ ...block, content: { items: newItems } });
+        updateBlock({ ...block, content: { ...block.content, items: newItems } });
     };
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, itemId: string) => {
@@ -77,7 +77,7 @@ const ChecklistBlock: React.FC<{
             const newItem: ChecklistItem = { id: self.crypto.randomUUID(), text: '', checked: false };
             const newItems = [...items];
             newItems.splice(currentIndex + 1, 0, newItem);
-            updateBlock({ ...block, content: { items: newItems } });
+            updateBlock({ ...block, content: { ...block.content, items: newItems } });
             
             setTimeout(() => {
                 const nextInput = document.querySelector(`[data-item-id="${newItem.id}"]`) as HTMLInputElement;
@@ -89,7 +89,7 @@ const ChecklistBlock: React.FC<{
             if (newItems.length === 0) {
                  newItems.push({ id: self.crypto.randomUUID(), text: '', checked: false });
             }
-            updateBlock({ ...block, content: { items: newItems } });
+            updateBlock({ ...block, content: { ...block.content, items: newItems } });
         }
     };
 
@@ -144,6 +144,36 @@ const MediaBlock: React.FC<{ block: ContentBlock, onAskAIAboutImage: (blockId: s
         fetchMedia();
     }, [block.content.dbKey]);
 
+    const summaryText = block.content.description || block.content.summary;
+    const [transcription, summary] = useMemo(() => {
+        if (!summaryText) return [null, null];
+        if (block.type === ContentBlockType.IMAGE) {
+            return [null, summaryText];
+        }
+        const parts = summaryText.split('---');
+        if (parts.length > 1 && parts[0].trim() !== '') {
+            return [parts[0].trim(), parts.slice(1).join('---').trim()];
+        }
+        // If there's no separator, or if the part before it is empty, treat the whole thing as a summary.
+        return [null, summaryText];
+    }, [summaryText, block.type]);
+
+    const formattedPhotoDate = useMemo(() => {
+        if (block.type === ContentBlockType.IMAGE && block.content.photoTakenAt) {
+            try {
+                return new Date(block.content.photoTakenAt).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            } catch (e) {
+                console.error("Invalid photoTakenAt date:", block.content.photoTakenAt);
+                return null;
+            }
+        }
+        return null;
+    }, [block.content.photoTakenAt, block.type]);
+
     const handleAskAiSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (aiQuestion.trim()) {
@@ -157,13 +187,14 @@ const MediaBlock: React.FC<{ block: ContentBlock, onAskAIAboutImage: (blockId: s
     if (!mediaUrl) return <div className="text-red-400">Media not found.</div>;
 
     const isAskingThisBlock = askingImageAIBlockId === block.id;
-
+    const isGenerating = block.content.isGeneratingDescription || block.content.isGeneratingSummary;
+    
     const renderMedia = () => {
         switch (block.type) {
             case ContentBlockType.IMAGE:
                 return <img src={mediaUrl} alt={block.content.description || 'User uploaded image'} className="max-w-full rounded-lg" />;
             case ContentBlockType.VIDEO:
-                return <video src={mediaUrl} controls className="max-w-full rounded-lg" />;
+                return <video src={mediaUrl} controls className="max-w-full rounded-lg max-h-[60vh]" />;
             case ContentBlockType.AUDIO:
                 return <audio src={mediaUrl} controls className="w-full" />;
             default:
@@ -174,7 +205,35 @@ const MediaBlock: React.FC<{ block: ContentBlock, onAskAIAboutImage: (blockId: s
     return (
         <div>
             {renderMedia()}
-            {block.content.description && <p className="text-sm text-gray-400 italic mt-2">{block.content.description}</p>}
+            {formattedPhotoDate && (
+                <p className="text-xs text-gray-500 mt-2 italic text-right">
+                    Photo taken on {formattedPhotoDate}
+                </p>
+            )}
+            {(summary || transcription) && !isGenerating && (
+                <div className="text-sm text-gray-400 mt-2 p-3 bg-gray-900/50 rounded-md space-y-3">
+                    {transcription && (
+                        <div>
+                            <h4 className="text-xs font-semibold text-gray-300 mb-1 tracking-wider uppercase not-italic">Transcription</h4>
+                            <p className="not-italic whitespace-pre-wrap font-mono text-xs text-gray-300">{transcription}</p>
+                        </div>
+                    )}
+                    {summary && (
+                         <div>
+                            <h4 className="text-xs font-semibold text-gray-300 mb-1 tracking-wider uppercase not-italic">
+                                {block.type === ContentBlockType.IMAGE ? 'AI Description' : 'AI Summary'}
+                            </h4>
+                            <p className="not-italic whitespace-pre-wrap">{summary}</p>
+                        </div>
+                    )}
+                </div>
+            )}
+            {isGenerating && (
+                <div className="text-sm text-gray-400 mt-2 p-3 bg-gray-900/50 rounded-md flex items-center gap-2">
+                    <SparklesIcon className="w-4 h-4 text-blue-400 animate-pulse" />
+                    <span>AI is generating a summary...</span>
+                </div>
+            )}
             {block.type === ContentBlockType.IMAGE && (
                 <div className="mt-2">
                     {!showAiPrompt && (
@@ -278,19 +337,19 @@ const EmbedBlock: React.FC<{block: ContentBlock, updateBlock: (b: ContentBlock) 
                 if (error.message && error.message.includes('RESOURCE_EXHAUSTED')) {
                     summaryMessage = 'AI summary failed: Rate limit exceeded. Please try again later.';
                 }
-                updateBlock({ ...block, content: { url, embedUrl, title: null, summary: summaryMessage } });
+                updateBlock({ ...block, content: { ...block.content, url, embedUrl, title: null, summary: summaryMessage } });
             }
         } else {
             try {
                 const { title, summary } = await generateLinkPreview(url);
-                updateBlock({ ...block, content: { url, embedUrl: null, title, summary } });
+                updateBlock({ ...block, content: { ...block.content, url, embedUrl: null, title, summary } });
             } catch (error: any) {
                 console.error("Error generating link preview:", error);
                  let summaryMessage = 'There was an issue processing this link.';
                 if (error.message && error.message.includes('RESOURCE_EXHAUSTED')) {
                     summaryMessage = 'AI preview failed: Rate limit exceeded. Please try again later.';
                 }
-                updateBlock({ ...block, content: { url, embedUrl: null, title: 'Could not generate preview', summary: summaryMessage } });
+                updateBlock({ ...block, content: { ...block.content, url, embedUrl: null, title: 'Could not generate preview', summary: summaryMessage } });
             }
         }
         setIsGenerating(false);

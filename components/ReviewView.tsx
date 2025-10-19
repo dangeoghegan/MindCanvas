@@ -46,21 +46,35 @@ const getNoteContentAsString = (note: Note): string => {
 };
 
 const formatRichText = (text: string): { __html: string } => {
-    let html = text
-      .replace(/^\s*\*\s*(\n|<br \/>)/gm, '')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>');
-    
-    html = html.replace(/^- (.*)/gm, '<li>$1</li>');
-    html = html.replace(/(<\/li>\s*<li>)/g, '</li><li>');
-    html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
-    
-    html = html.replace(/\n/g, '<br />');
-    html = html.replace(/<br \/>(\s)*<ul>/g, '<ul>');
-    html = html.replace(/<\/ul><br \/>/g, '</ul>');
-    html = html.replace(/<\/li><br \/>/g, '</li>');
+    // Process markdown line-by-line to wrap in appropriate tags with classes
+    const finalHtml = text
+        .split('\n')
+        .map(line => {
+            if (line.trim() === '') return '';
 
-    return { __html: html };
+            // Headers
+            if (line.startsWith('## ')) return `<h2 class="text-2xl font-bold mt-10 mb-4 text-white flex items-center gap-3">${line.substring(3)}</h2>`;
+            if (line.startsWith('### ')) return `<div class="p-4 bg-gray-800/50 rounded-lg my-4"><h3 class="text-xl font-semibold mb-2 text-gray-200">${line.substring(4)}</h3>`;
+            
+            // Blockquote for Reflection
+            if (line.startsWith('> ')) return `<blockquote class="text-3xl font-bold text-center my-8 text-gray-100 not-italic border-none p-0">${line.substring(2)}</blockquote>`;
+
+            // List items for Learnings & Trends
+            if (line.startsWith('- ')) return `<li class="ml-4">${line.substring(2)}</li>`;
+            
+            // Default to paragraph for moment details etc.
+            return `<p class="my-1 text-gray-300 leading-relaxed">${line}</p>`;
+        })
+        .join('')
+        // Post-process to wrap consecutive LIs in UL and close moment divs
+        .replace(/(<\/h3><p>.*?(?=<h3|<\/div>|$))/gs, (match) => `${match}</div>`)
+        .replace(/(<li>.*<\/li>)/gs, '<ul class="list-disc list-inside space-y-2 my-4 text-gray-300">$1</ul>')
+        // Inline formatting
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-white">$1</strong>')
+        .replace(/_(.*?)_/g, '<em class="italic text-gray-300">$1</em>')
+        .replace(/`(.*?)`/g, '<code class="bg-gray-800 text-gray-200 rounded px-1.5 py-0.5 text-sm font-mono mx-1">$1</code>');
+
+    return { __html: finalHtml };
 }
 
 const LoadingSkeleton = () => (
@@ -119,7 +133,8 @@ const ReviewView: React.FC<{ notes: Note[]; onNewNote: () => void; }> = ({ notes
         // Debounce the API call to prevent rate-limiting errors when switching tabs quickly.
         const handler = setTimeout(async () => {
             const notesContext = filteredNotes.map(getNoteContentAsString).join('\n\n---\n\n');
-            const result = await generateReviewSummary(notesContext);
+            const peopleInPeriod = Array.from(new Set<string>(filteredNotes.flatMap(n => n.people || [])));
+            const result = await generateReviewSummary(notesContext, period, peopleInPeriod);
             
             if (result === "You didn't have any notes in this period. Capture some thoughts and come back later to reflect!") {
                 setIsEmpty(true);
@@ -132,7 +147,7 @@ const ReviewView: React.FC<{ notes: Note[]; onNewNote: () => void; }> = ({ notes
         return () => {
             clearTimeout(handler);
         };
-    }, [filteredNotes]);
+    }, [filteredNotes, period]);
 
     return (
         <div className="flex-1 bg-[#1C1C1C] text-white p-6 md:p-12 overflow-y-auto">
@@ -157,7 +172,7 @@ const ReviewView: React.FC<{ notes: Note[]; onNewNote: () => void; }> = ({ notes
                         <EmptyState onNewNote={onNewNote} />
                     ) : (
                         <div 
-                            className="bg-gray-900 p-6 sm:p-8 rounded-lg prose prose-xl prose-invert prose-p:text-gray-300 prose-strong:text-white prose-strong:font-bold prose-strong:text-2xl prose-strong:block prose-strong:mt-8 prose-strong:mb-3 prose-em:text-gray-300 prose-li:marker:text-blue-400"
+                            className="bg-gray-900 p-6 sm:p-8 rounded-lg"
                             dangerouslySetInnerHTML={formatRichText(summary)}
                         />
                     )}
