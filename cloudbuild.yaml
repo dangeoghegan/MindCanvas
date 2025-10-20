@@ -1,0 +1,14 @@
+steps:
+  # This step syncs the content of the current directory to a Google Cloud Storage bucket.
+  # The '-m' flag performs a parallel copy/sync, which is faster for many files.
+  # The 'rsync' command makes the destination match the source, deleting extra files in the destination.
+  # The '-r' flag makes the operation recursive.
+  # Replace '$PROJECT_ID-bucket' with the name of your GCS bucket.
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args: ['-m', 'rsync', '-r', '.', 'gs://$PROJECT_ID-bucket/']
+
+# This section specifies the location of the build artifacts.
+artifacts:
+  objects:
+    location: 'gs://$PROJECT_ID-bucket/'
+    paths: ['**']
