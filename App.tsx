@@ -639,7 +639,6 @@ function App() {
             onSetView={handleSetView}
             onNewNote={handleNewNote}
             onStartConversation={() => setIsConversationModeActive(true)}
-            onShortcut={handleShortcut}
         />
       )}
       {isConversationModeActive && <ConversationModeOverlay notes={notes} selectedVoice={selectedVoice} onClose={() => setIsConversationModeActive(false)} />}

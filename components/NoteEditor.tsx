@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Note, ContentBlock, ContentBlockType, ChecklistItem } from '../types';
 // FIX: Changed import to a default import to match the export type in ContentBlockComponent.
 import ContentBlockComponent from './ContentBlockComponent';
-import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon } from './icons';
+import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon, CameraIcon, PhotoIcon, VideoCameraIcon } from './icons';
 // FIX: Renamed function to match export from geminiService.
 import { generateChecklistFromAudio, answerQuestionAboutImage } from '../services/geminiService';
 // FIX: Imported 'getMedia' to resolve 'Cannot find name' error.
@@ -94,6 +94,21 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   useEffect(() => {
     noteRef.current = note;
   }, [note]);
+
+  const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
+  const cameraMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (cameraMenuRef.current && !cameraMenuRef.current.contains(event.target as Node)) {
+            setIsCameraMenuOpen(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -701,6 +716,40 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                         onClick={handleToggleDictation}
                         disabled={isRecording || isRecordingForChecklist || isAiBusy} 
                     />
+                    <div className="relative" ref={cameraMenuRef}>
+                        <button
+                            onClick={() => setIsCameraMenuOpen(prev => !prev)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
+                            disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
+                        >
+                            <CameraIcon className="w-5 h-5" />
+                            <span>Camera</span>
+                        </button>
+                        {isCameraMenuOpen && (
+                            <div className="absolute bottom-full mb-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-2 animate-fade-in">
+                                <button
+                                    onClick={() => {
+                                        photoInputRef.current?.click();
+                                        setIsCameraMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                >
+                                    <PhotoIcon className="w-5 h-5" />
+                                    <span>Take Photo</span>
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        videoInputRef.current?.click();
+                                        setIsCameraMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                >
+                                    <VideoCameraIcon className="w-5 h-5" />
+                                    <span>Record Video</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
                     <button 
                         onClick={handleGenericFileClick}
                         className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
