@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Note } from '../types';
 import { ChevronDownIcon, DocumentIcon, PlusIcon, PhotoIcon } from './icons';
 
@@ -12,4 +12,39 @@ interface SidebarProps {
   currentView: 'dashboard' | 'note' | 'chat' | 'library' | 'media';
 }
 
-const logoUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAJkSURBVHgBvVdtb9NAFN23l0II4SMR/gB5F1J5UqpHlFJFhWpJySAlUJGkSo2qQ4coFUIVqaoOqFKlEkUf5A9A7sFDIjx4CCFkH/Z57N3Gj2V8lCQbczLJJ3v2/b53v+9sDMEwzCAtbZcDAIRJ0kgyt5SUnXgDEEIIIYQQKooI8vE81wJ6hJ+RkQ8xV05fIJC0WAIe73B5L9O1jJ+hYp+PTM4yft4G/QfT87iY6zT+e14t7g9N41L94n5j+4+YfX/c/1Xv9a07oBUIw1XkIM7/jA1X8fT3A/tC/oRBuM78Z5N0Sjq+cK1s31n9zHk0L109z+Nl9l8y3d3i1fO9s0Wf3yU+X/9uGkfF0x8v97e/U+vA/uT6Y8Z/m/w5Y/3/h8A+C7u/q/h7P/H+r+F8v9XQZpBWEwTr48/fT40sP5243n1rL8W1h0D+gVw6EEYjL+3/P3v/6s154P+zH2h/w+wzM/1AII+gW/841//sT1P3I/eD/n5Xy+V/8364+n6Z8f5v4Vz3v2f+j2V+n1F9v5b3V/L/23n/n/X+H/R/g/c/4f2/1/9X/n/C+7/W/w/6v8H7n/D+X+v/B/1f4P1P+P9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1P+P9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9b/B/1f4P1PeP9v9f+D/i/w/if8/7f6/0H/F3j/E97/W/1/0P8F3v+E9/9W/x/0f4H3P+H9v9
+// The original component implementation was lost due to file corruption.
+// Providing a minimal valid component to fix the syntax error in this file.
+const Sidebar: React.FC<SidebarProps> = ({ notes, activeNoteId, onSelectNote, onNewNote, isVisible }) => {
+    if (!isVisible) {
+      return null;
+    }
+
+    return (
+      <aside className="bg-gray-900 text-gray-300 w-64 p-4 flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Notes</h2>
+          <button onClick={onNewNote} className="p-2 rounded-md hover:bg-gray-800">
+            <PlusIcon />
+          </button>
+        </div>
+        <nav className="flex-1 overflow-y-auto">
+          <ul>
+            {notes.map(note => (
+              <li key={note.id}>
+                <button
+                  onClick={() => onSelectNote(note.id)}
+                  className={`w-full text-left p-2 rounded-md truncate ${
+                    activeNoteId === note.id ? 'bg-gray-800' : 'hover:bg-gray-800'
+                  }`}
+                >
+                  {note.title || 'Untitled Note'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
+    );
+};
+
+export default Sidebar;

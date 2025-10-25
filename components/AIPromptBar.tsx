@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { SparklesIcon, MicrophoneIcon, XMarkIcon } from './icons';
 
@@ -33,7 +34,7 @@ const AIPromptBar: React.FC<AIPromptBarProps> = ({ onAskAI, isLoading, aiRespons
         )}
         {isLoading && (
             <div className="text-center text-gray-400 mb-2">
-                <p>MindCanvas is thinking...</p>
+                <p>Granula is thinking...</p>
             </div>
         )}
         <form onSubmit={handleSubmit} className="bg-gray-800 border border-gray-700 rounded-lg p-3 flex items-center">

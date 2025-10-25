@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod } from './types';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import NoteEditor from './components/NoteEditor';
 import ReviewView from './components/ReviewView';
@@ -9,13 +9,15 @@ import LibraryView from './components/LibraryView';
 import MediaView from './components/MediaView';
 import SettingsView from './components/SettingsView';
 import BottomNavBar from './components/BottomNavBar';
-import { answerQuestionFromContext, generateTitle, generateImageDescription, summarizeVideo, summarizeAudio, generateTagsForNote } from './services/geminiService';
+import { ConversationModeOverlay } from './components/ConversationModeOverlay';
+import { answerQuestionFromContext, generateTitle, generateImageDescription, summarizeVideo, summarizeAudio, generateTagsForNote, summarizePdf } from './services/geminiService';
 import { initDB, saveMedia, getMedia, deleteMedia } from './services/dbService';
+import { faceRecognitionService } from './services/faceRecognitionService';
 
 const initialNotes: Note[] = [
     {
         id: 'welcome-note',
-        title: 'Welcome to MindCanvas',
+        title: 'Welcome to Granula',
         createdAt: new Date().toISOString(),
         content: [
             { id: 'h1', type: ContentBlockType.HEADER, content: { text: 'Start Here' }, createdAt: new Date().toISOString() },
@@ -72,7 +74,7 @@ const getNoteContentAsStringForTitle = (note: Note): string => {
 
 
 function App() {
-  const [notes, setNotes] = useLocalStorage<Note[]>('mind-canvas-notes', initialNotes);
+  const [notes, setNotes] = useLocalStorage<Note[]>('granula-notes', initialNotes);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [isLoadingAI, setIsLoadingAI] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
@@ -80,11 +82,16 @@ function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'note' | 'chat' | 'library' | 'media' | 'settings'>('library');
   const [previousView, setPreviousView] = useState<'dashboard' | 'library' | 'media' | 'settings'>('library');
 
-  const [chatMessages, setChatMessages] = useLocalStorage<ChatMessage[]>('mind-canvas-chat-history', []);
+  const [chatMessages, setChatMessages] = useLocalStorage<ChatMessage[]>('granula-chat-history', []);
   const [isChatLoading, setIsChatLoading] = useState(false);
 
-  const [masterPeopleList, setMasterPeopleList] = useLocalStorage<string[]>('mind-canvas-people', ['Jane Doe', 'John Smith']);
-  const [autoDeleteRules, setAutoDeleteRules] = useLocalStorage<AutoDeleteRule[]>('mind-canvas-auto-delete-rules', []);
+  const [masterPeopleList, setMasterPeopleList] = useLocalStorage<string[]>('granula-people', ['Jane Doe', 'John Smith']);
+  const [autoDeleteRules, setAutoDeleteRules] = useLocalStorage<AutoDeleteRule[]>('granula-auto-delete-rules', []);
+  const [selectedVoice, setSelectedVoice] = useLocalStorage<VoiceName>('granula-selected-voice', 'Kore');
+
+  const [isConversationModeActive, setIsConversationModeActive] = useState(false);
+  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' } | null>(null);
+
 
   const addPersonToMasterList = (name: string) => {
     const trimmedName = name.trim();
@@ -127,11 +134,72 @@ function App() {
 
   useEffect(() => {
     initDB();
+    faceRecognitionService.loadModels().catch(err => {
+        console.error("Could not load face recognition models on startup:", err);
+    });
   }, []);
+
+  const handleNewNote = useCallback(() => {
+    const newNote: Note = {
+      id: self.crypto.randomUUID(),
+      title: 'Untitled Note',
+      createdAt: new Date().toISOString(),
+      content: [{ id: self.crypto.randomUUID(), type: ContentBlockType.TEXT, content: { text: '' }, createdAt: new Date().toISOString() }],
+    };
+    setNotes(prevNotes => [newNote, ...prevNotes]);
+    setActiveNoteId(newNote.id);
+    setCurrentView('note');
+  }, [setNotes, setActiveNoteId, setCurrentView]);
+
+  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio') => {
+    const newNote: Note = {
+      id: self.crypto.randomUUID(),
+      title: 'Untitled Note',
+      createdAt: new Date().toISOString(),
+      content: [],
+    };
+    setNotes(prev => [newNote, ...prev]);
+    setShortcutAction({ noteId: newNote.id, action });
+    setActiveNoteId(newNote.id);
+    setCurrentView('note');
+  }, [setNotes, setShortcutAction, setActiveNoteId, setCurrentView]);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const action = urlParams.get('action');
+
+    if (action) {
+      // Use a timeout to ensure the app is ready for the action
+      setTimeout(() => {
+        switch (action) {
+          case 'new-note':
+            handleNewNote();
+            break;
+          case 'take-photo':
+            handleShortcut('photo');
+            break;
+          case 'record-video':
+            handleShortcut('video');
+            break;
+          case 'record-audio':
+            handleShortcut('audio');
+            break;
+          case 'conversation':
+            setIsConversationModeActive(true);
+            break;
+          default:
+            console.warn(`Unknown shortcut action: ${action}`);
+        }
+      }, 100); // Small delay to allow initial render to complete
+
+      // Clean the URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [handleNewNote, handleShortcut, setIsConversationModeActive]);
 
   useEffect(() => {
     const runMigration = async () => {
-        const migrationKey = 'mind-canvas-migration-v2-complete';
+        const migrationKey = 'granula-migration-v1-complete';
         if (localStorage.getItem(migrationKey)) {
             return;
         }
@@ -139,7 +207,7 @@ function App() {
         console.log('Running data migration to IndexedDB...');
         await initDB();
 
-        const notesFromStorage = localStorage.getItem('mind-canvas-notes');
+        const notesFromStorage = localStorage.getItem('granula-notes');
         if (!notesFromStorage) {
             localStorage.setItem(migrationKey, 'true');
             return;
@@ -190,29 +258,91 @@ function App() {
   useEffect(() => {
     const runNextAITask = async () => {
         for (const note of notes) {
-            // --- Task: Process media blocks (Image Description, Video/Audio Summary) ---
+            // --- Task: Face Recognition in Images (RUNS FIRST) ---
             for (const block of note.content) {
-                const isImage = block.type === ContentBlockType.IMAGE && !block.content.description && !block.content.isGeneratingDescription;
-                const isVideo = block.type === ContentBlockType.VIDEO && !block.content.summary && !block.content.isGeneratingSummary;
-                const isAudio = block.type === ContentBlockType.AUDIO && !block.content.summary && !block.content.isGeneratingSummary;
+                if (block.type === ContentBlockType.IMAGE && block.content.dbKey && typeof block.content.faces === 'undefined' && !block.content.isRecognizingFaces) {
+                    const knownFaces = faceRecognitionService.loadKnownFaces();
+                    if (knownFaces.length === 0) {
+                        // Mark as processed if there are no people to recognize
+                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, faces: [] } } : b) } : n));
+                        continue;
+                    }
 
-                if (block.content.dbKey && (isImage || isVideo || isAudio)) {
+                    setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: true, faceRecognitionError: null } } : b) } : n));
+
+                    try {
+                        const media = await getMedia(block.content.dbKey);
+                        if (media && media.url) {
+                            const imageElement = await faceRecognitionService.createImageElement(media.url);
+                            const detectedFaces = await faceRecognitionService.recognizeFaces(imageElement, knownFaces);
+                            
+                            const detectedNames = detectedFaces
+                                .filter(f => f.name !== 'Unknown')
+                                .map(f => f.name);
+
+                            setNotes(currentNotes => currentNotes.map(n => {
+                                if (n.id === note.id) {
+                                    const existingPeople = new Set(n.people || []);
+                                    detectedNames.forEach(name => existingPeople.add(name));
+                                    
+                                    return {
+                                        ...n,
+                                        people: Array.from(existingPeople).sort(),
+                                        content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: false, faces: detectedFaces } } : b)
+                                    };
+                                }
+                                return n;
+                            }));
+                        } else {
+                            throw new Error("Media not found in DB for face recognition.");
+                        }
+                    } catch(error) {
+                        console.error(`Face recognition for block ${block.id} failed:`, error);
+                        const errorMessage = error instanceof Error ? error.message : "Face recognition failed.";
+                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: false, faceRecognitionError: errorMessage } } : b) } : n));
+                    }
+                    return; // One task at a time
+                }
+            }
+
+            // --- Task: Process media blocks (Image Description, Video/Audio/PDF Summary) ---
+            for (const block of note.content) {
+                const isImage = block.type === ContentBlockType.IMAGE && !block.content.description && !block.content.isGeneratingDescription && !block.content.descriptionError && typeof block.content.faces !== 'undefined';
+                const isVideo = block.type === ContentBlockType.VIDEO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
+                const isAudio = block.type === ContentBlockType.AUDIO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
+                const isPdf = block.type === ContentBlockType.FILE && block.content.mimeType === 'application/pdf' && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
+
+                if (block.content.dbKey && (isImage || isVideo || isAudio || isPdf)) {
+                    
                     setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? {
                         ...n,
                         content: n.content.map(b => b.id === block.id ? {
                             ...b,
-                            content: { ...b.content, isGeneratingDescription: isImage, isGeneratingSummary: isVideo || isAudio }
+                            content: { ...b.content, isGeneratingDescription: isImage, isGeneratingSummary: isVideo || isAudio || isPdf }
                         } : b)
                     } : n));
 
                     try {
                         const media = await getMedia(block.content.dbKey);
                         if (media && media.url) {
-                            const base64data = media.url.split(',')[1];
                             let result: string | null = null;
-                            if (isImage) result = await generateImageDescription(base64data, media.mimeType);
-                            if (isVideo) result = await summarizeVideo(base64data, media.mimeType);
-                            if (isAudio) result = await summarizeAudio(base64data, media.mimeType);
+                            const base64data = media.url.split(',')[1];
+
+                            if (isImage) {
+                                const recognizedPeople = (block.content.faces || [])
+                                    .filter(face => face.name !== 'Unknown')
+                                    .map(face => face.name);
+                                result = await generateImageDescription(base64data, media.mimeType, recognizedPeople);
+                            }
+                            if (isVideo) {
+                                result = await summarizeVideo(base64data, media.mimeType);
+                            }
+                            if (isAudio) {
+                                result = await summarizeAudio(base64data, media.mimeType);
+                            }
+                            if (isPdf) {
+                                result = await summarizePdf(base64data, media.mimeType);
+                            }
 
                              setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? {
                                 ...n,
@@ -221,7 +351,7 @@ function App() {
                                     content: {
                                         ...b.content,
                                         description: isImage ? result || b.content.description : b.content.description,
-                                        summary: (isVideo || isAudio) ? result || b.content.summary : b.content.summary,
+                                        summary: (isVideo || isAudio || isPdf) ? result || b.content.summary : b.content.summary,
                                         isGeneratingDescription: false, isGeneratingSummary: false,
                                     }
                                 } : b)
@@ -229,11 +359,25 @@ function App() {
                         }
                     } catch (error) {
                         console.error(`Background AI task for block ${block.id} failed:`, error);
-                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isGeneratingDescription: false, isGeneratingSummary: false } } : b) } : n));
+                        const errorMessage = error instanceof Error ? error.message : "An unknown AI error occurred.";
+                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? {
+                            ...n,
+                            content: n.content.map(b => b.id === block.id ? {
+                                ...b,
+                                content: {
+                                    ...b.content,
+                                    isGeneratingDescription: false,
+                                    isGeneratingSummary: false,
+                                    descriptionError: isImage ? errorMessage : b.content.descriptionError,
+                                    summaryError: (isVideo || isAudio || isPdf) ? errorMessage : b.content.summaryError,
+                                }
+                            } : b)
+                        } : n));
                     }
-                    return;
+                    return; // Process one task at a time
                 }
             }
+
 
             // --- Task: Generate Note Title ---
             const hasMeaningfulContent = note.content.some(b => {
@@ -242,7 +386,7 @@ function App() {
                 return !!b.content.url || !!b.content.dbKey;
             });
 
-            if (note.title === 'Untitled Note' && hasMeaningfulContent && !note.titleIsGenerating) {
+            if (note.title === 'Untitled Note' && hasMeaningfulContent && !note.titleIsGenerating && !note.titleError) {
                 setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: true } : n));
                 try {
                     const noteContext = getNoteContentAsStringForTitle(note);
@@ -254,13 +398,14 @@ function App() {
                     }
                 } catch (error) {
                     console.error('Background title generation failed:', error);
-                    setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false } : n));
+                    const errorMessage = error instanceof Error ? error.message : "Failed to generate title.";
+                    setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false, titleError: errorMessage } : n));
                 }
-                return;
+                return; // Process one task at a time
             }
 
             // --- Task: Generate Note Tags ---
-            const noteWithoutTags = notes.find(n => !n.tags && !n.tagsAreGenerating && getNoteContentAsStringForTitle(n).trim().length > 20);
+            const noteWithoutTags = notes.find(n => !n.tags && !n.tagsAreGenerating && !n.tagsError && getNoteContentAsStringForTitle(n).trim().length > 20);
             if (noteWithoutTags) {
                 setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tagsAreGenerating: true } : n));
                 try {
@@ -269,17 +414,18 @@ function App() {
                     setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tags: newTags, tagsAreGenerating: false } : n ));
                 } catch (error) {
                     console.error('Background tag generation failed:', error);
-                    setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tags: [], tagsAreGenerating: false } : n));
+                    const errorMessage = error instanceof Error ? error.message : "Failed to generate tags.";
+                    setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tagsAreGenerating: false, tagsError: errorMessage } : n));
                 }
-                return;
+                return; // Process one task at a time
             }
         }
     };
     
-    const timeoutId = setTimeout(runNextAITask, 500);
+    const timeoutId = setTimeout(runNextAITask, 2000);
     return () => clearTimeout(timeoutId);
 
-  }, [notes, setNotes]);
+  }, [notes, setNotes, masterPeopleList]);
 
     useEffect(() => {
         const checkAutoDelete = async () => {
@@ -341,18 +487,6 @@ function App() {
     }, [notes, autoDeleteRules, setNotes]);
 
   const activeNote = notes.find(note => note.id === activeNoteId) || null;
-
-  const handleNewNote = () => {
-    const newNote: Note = {
-      id: self.crypto.randomUUID(),
-      title: 'Untitled Note',
-      createdAt: new Date().toISOString(),
-      content: [{ id: self.crypto.randomUUID(), type: ContentBlockType.TEXT, content: { text: '' }, createdAt: new Date().toISOString() }],
-    };
-    setNotes([newNote, ...notes]);
-    setActiveNoteId(newNote.id);
-    setCurrentView('note');
-  };
   
   const handleUpdateNote = (updatedNote: Note) => {
     setNotes(prevNotes => 
@@ -464,11 +598,11 @@ function App() {
 
   const renderView = () => {
     if (currentView === 'note' && activeNote) {
-      return <NoteEditor note={activeNote} updateNote={handleUpdateNote} deleteNote={handleDeleteNote} onClose={handleCloseNote} masterPeopleList={masterPeopleList} onAddPersonToMasterList={addPersonToMasterList} />;
+      return <NoteEditor note={activeNote} updateNote={handleUpdateNote} deleteNote={handleDeleteNote} onClose={handleCloseNote} masterPeopleList={masterPeopleList} onAddPersonToMasterList={addPersonToMasterList} shortcutAction={shortcutAction} onShortcutHandled={() => setShortcutAction(null)} />;
     }
     switch (currentView) {
       case 'chat':
-        return <ChatView messages={chatMessages} onSendMessage={handleSendChatMessage} isLoading={isChatLoading} onSelectNote={handleSelectNote} />;
+        return <ChatView messages={chatMessages} onSendMessage={handleSendChatMessage} isLoading={isChatLoading} onSelectNote={handleSelectNote} notes={notes} selectedVoice={selectedVoice} onStartConversation={() => setIsConversationModeActive(true)} />;
       case 'library':
         return <LibraryView notes={notes} onSelectNote={handleSelectNote} masterPeopleList={masterPeopleList} onSetView={handleSetView as (view: 'settings') => void} onDeleteNote={handleDeleteNote} />;
       case 'media':
@@ -483,6 +617,8 @@ function App() {
             autoDeleteRules={autoDeleteRules}
             onAddAutoDeleteRule={addAutoDeleteRule}
             onRemoveAutoDeleteRule={removeAutoDeleteRule}
+            selectedVoice={selectedVoice}
+            onSetSelectedVoice={setSelectedVoice}
         />;
       case 'dashboard':
       default:
@@ -499,11 +635,14 @@ function App() {
         <AIPromptBar onAskAI={handleAskAI} isLoading={isLoadingAI} aiResponse={aiResponse} clearResponse={() => setAiResponse(null)} />
       ) : (
         <BottomNavBar
-            currentView={currentView}
+            currentView={currentView as 'dashboard' | 'chat' | 'library' | 'settings'}
             onSetView={handleSetView}
             onNewNote={handleNewNote}
+            onStartConversation={() => setIsConversationModeActive(true)}
+            onShortcut={handleShortcut}
         />
       )}
+      {isConversationModeActive && <ConversationModeOverlay notes={notes} selectedVoice={selectedVoice} onClose={() => setIsConversationModeActive(false)} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // services/dbService.ts
 let db: IDBDatabase;
 
-const DB_NAME = 'MindCanvasDB';
+const DB_NAME = 'GranulaDB';
 const STORE_NAME = 'mediaFiles';
 const DB_VERSION = 1;
 

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Note, ContentBlockType } from '../types';
 import { DocumentIcon, TagIcon, ChevronDownIcon, XMarkIcon, SearchIcon, UserIcon, TrashIcon } from './icons';
+import { useLongPress } from '../hooks/useLongPress';
 
 interface LibraryViewProps {
   notes: Note[];
@@ -97,6 +98,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
           break;
         case ContentBlockType.VIDEO:
         case ContentBlockType.AUDIO:
+        case ContentBlockType.EMBED:
           textToAdd = block.content.summary || '';
           break;
       }
@@ -107,8 +109,13 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
     }
     
     if (snippet.trim() === '') {
-        const hasMedia = note.content.some(b => b.type === ContentBlockType.IMAGE || b.type === ContentBlockType.VIDEO || b.type === ContentBlockType.AUDIO);
-        if (hasMedia) return 'Note contains media.';
+        const hasMedia = note.content.some(b => 
+            b.type === ContentBlockType.IMAGE || 
+            b.type === ContentBlockType.VIDEO || 
+            b.type === ContentBlockType.AUDIO ||
+            b.type === ContentBlockType.EMBED
+        );
+        if (hasMedia) return 'Note contains media or embedded content.';
         return 'No text content.';
     }
 
@@ -130,6 +137,48 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
+  const NoteCard: React.FC<{ note: Note }> = ({ note }) => {
+    const pressEvents = useLongPress(
+      () => onSelectNote(note.id), // onLongPress
+      () => onSelectNote(note.id)  // onClick
+    );
+
+    return (
+      <div className="relative group">
+        <button
+          {...pressEvents}
+          className="bg-gray-900 hover:bg-gray-800 p-5 rounded-lg text-left transition-all duration-200 flex flex-col justify-between h-48 border-l-4 border-blue-500/50 hover:border-blue-500 w-full"
+        >
+          <div>
+            <h3 className="font-bold text-lg text-gray-100 truncate mb-2">{note.title || 'Untitled Note'}</h3>
+            <p className="text-sm text-gray-400 break-words overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+              {getNoteSnippet(note)}
+            </p>
+          </div>
+          <div className="flex items-center justify-between mt-4">
+            <span className="text-xs text-gray-500">
+              {formatDate(note.createdAt)}
+            </span>
+            <DocumentIcon className="w-4 h-4 text-gray-600" />
+          </div>
+        </button>
+        <button
+            onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`Are you sure you want to permanently delete "${note.title || 'Untitled Note'}"? This action cannot be undone.`)) {
+                    onDeleteNote(note.id);
+                }
+            }}
+            className="absolute top-2 right-2 p-1.5 rounded-full text-gray-500 bg-gray-900/50 hover:bg-red-500/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all z-10"
+            title="Delete Note"
+        >
+            <TrashIcon className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  };
+
+
   return (
     <div className="flex-1 bg-[#1C1C1C] text-white p-6 md:p-12 overflow-y-auto">
       <div className="max-w-4xl mx-auto">
@@ -147,7 +196,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
                 >
                   <span className="truncate">{selectedPerson || 'Filter by person'}</span>
                   {selectedPerson ? (
-                     <XMarkIcon onClick={(e) => { e.stopPropagation(); handlePersonSelect(null); }} className="w-4 h-4 text-gray-400 hover:text-white" />
+                     // FIX: The XMarkIcon does not accept an onClick prop. Wrapped it in a button to handle the click event for clearing the filter.
+                     <button type="button" onClick={(e) => { e.stopPropagation(); handlePersonSelect(null); }} className="p-1 rounded-full hover:bg-gray-700">
+                        <XMarkIcon className="w-4 h-4 text-gray-400" />
+                     </button>
                   ) : (
                      <ChevronDownIcon className="w-4 h-4 text-gray-400" />
                   )}
@@ -181,7 +233,10 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
                 >
                   <span className="truncate">{selectedTag ? `#${selectedTag}` : 'Filter by tag'}</span>
                   {selectedTag ? (
-                     <XMarkIcon onClick={(e) => { e.stopPropagation(); handleTagSelect(null); }} className="w-4 h-4 text-gray-400 hover:text-white" />
+                     // FIX: The XMarkIcon does not accept an onClick prop. Wrapped it in a button to handle the click event for clearing the filter.
+                     <button type="button" onClick={(e) => { e.stopPropagation(); handleTagSelect(null); }} className="p-1 rounded-full hover:bg-gray-700">
+                        <XMarkIcon className="w-4 h-4 text-gray-400" />
+                     </button>
                   ) : (
                      <ChevronDownIcon className="w-4 h-4 text-gray-400" />
                   )}
@@ -212,37 +267,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
         {filteredNotes.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredNotes.map(note => (
-              <div key={note.id} className="relative group">
-                <button
-                  onClick={() => onSelectNote(note.id)}
-                  className="bg-gray-900 hover:bg-gray-800 p-5 rounded-lg text-left transition-all duration-200 flex flex-col justify-between h-48 border-l-4 border-blue-500/50 hover:border-blue-500 w-full"
-                >
-                  <div>
-                    <h3 className="font-bold text-lg text-gray-100 truncate mb-2">{note.title || 'Untitled Note'}</h3>
-                    <p className="text-sm text-gray-400 break-words overflow-hidden" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
-                      {getNoteSnippet(note)}
-                    </p>
-                  </div>
-                  <div className="flex items-center justify-between mt-4">
-                    <span className="text-xs text-gray-500">
-                      {formatDate(note.createdAt)}
-                    </span>
-                    <DocumentIcon className="w-4 h-4 text-gray-600" />
-                  </div>
-                </button>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Are you sure you want to permanently delete "${note.title || 'Untitled Note'}"? This action cannot be undone.`)) {
-                            onDeleteNote(note.id);
-                        }
-                    }}
-                    className="absolute top-2 right-2 p-1.5 rounded-full text-gray-500 bg-gray-900/50 hover:bg-red-500/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all z-10"
-                    title="Delete Note"
-                >
-                    <TrashIcon className="w-4 h-4" />
-                </button>
-              </div>
+              <NoteCard key={note.id} note={note} />
             ))}
           </div>
         ) : (

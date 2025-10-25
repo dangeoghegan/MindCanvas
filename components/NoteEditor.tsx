@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Note, ContentBlock, ContentBlockType, ChecklistItem } from '../types';
+// FIX: Changed import to a default import to match the export type in ContentBlockComponent.
 import ContentBlockComponent from './ContentBlockComponent';
 import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon } from './icons';
-import { generateChecklistFromAudio, askQuestionAboutImage } from '../services/geminiService';
+// FIX: Renamed function to match export from geminiService.
+import { generateChecklistFromAudio, answerQuestionAboutImage } from '../services/geminiService';
 // FIX: Imported 'getMedia' to resolve 'Cannot find name' error.
 import { saveMedia, deleteMedia, getMedia } from '../services/dbService';
+import { DictateButton } from './DictateButton';
+import { useWhisper } from '../hooks/useWhisper';
 
 interface NoteEditorProps {
   note: Note;
@@ -13,6 +17,8 @@ interface NoteEditorProps {
   onClose: () => void;
   masterPeopleList: string[];
   onAddPersonToMasterList: (name: string) => void;
+  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' } | null;
+  onShortcutHandled: () => void;
 }
 
 const fileToDataUrl = (file: File): Promise<string> => {
@@ -61,7 +67,7 @@ const getExifDateTime = (file: File): Promise<string | null> => {
 };
 
 
-const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, onClose, masterPeopleList, onAddPersonToMasterList }) => {
+const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, onClose, masterPeopleList, onAddPersonToMasterList, shortcutAction, onShortcutHandled }) => {
   const [isAiChecklistLoading, setIsAiChecklistLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -70,40 +76,24 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   const [checklistRecordingTime, setChecklistRecordingTime] = useState(0);
 
   const [askingImageAIBlockId, setAskingImageAIBlockId] = useState<string | null>(null);
-  const [isDictating, setIsDictating] = useState(false);
-  const [dictatedBlockId, setDictatedBlockId] = useState<string | null>(null);
 
   const [personInput, setPersonInput] = useState('');
   const [showPersonSuggestions, setShowPersonSuggestions] = useState(false);
   const personInputRef = useRef<HTMLInputElement>(null);
 
-
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<number | null>(null);
-  const recognitionRef = useRef<any>(null);
-  const silenceTimeoutRef = useRef<number | null>(null);
-  const isDictatingRef = useRef(false);
-  const finalTranscriptRef = useRef('');
   
   const genericFileInputRef = useRef<HTMLInputElement>(null);
-
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const activeInputRef = useRef<{ blockId: string; itemId?: string; element: HTMLTextAreaElement | HTMLInputElement } | null>(null);
 
   const noteRef = useRef(note);
   useEffect(() => {
     noteRef.current = note;
   }, [note]);
-
-  const updateNoteRef = useRef(updateNote);
-  useEffect(() => {
-    updateNoteRef.current = updateNote;
-  }, [updateNote]);
-
-  const dictatedBlockIdRef = useRef(dictatedBlockId);
-  useEffect(() => {
-    dictatedBlockIdRef.current = dictatedBlockId;
-  }, [dictatedBlockId]);
-
 
   useEffect(() => {
     return () => {
@@ -113,116 +103,79 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
     };
   }, []);
 
+  const [dictationState, setDictationState] = useState<{
+    blockId: string;
+    itemId?: string;
+    startPos: number;
+    initialValue: string;
+  } | null>(null);
+
+  const handleTranscription = useCallback((result: { text: string; isFinal: boolean }) => {
+    setDictationState(currentDictationState => {
+        if (!currentDictationState) return null;
+
+        const { blockId, itemId, startPos, initialValue } = currentDictationState;
+        
+        const space = initialValue.length > 0 && startPos > 0 && initialValue[startPos - 1] !== ' ' && initialValue[startPos - 1] !== '\n' ? ' ' : '';
+        const textToInsert = space + result.text;
+        const newValue = initialValue.substring(0, startPos) + textToInsert + initialValue.substring(startPos);
+
+        const newContent = noteRef.current.content.map(b => {
+            if (b.id === blockId) {
+                if (b.type === ContentBlockType.CHECKLIST && itemId) {
+                    const newItems = b.content.items?.map(i => i.id === itemId ? { ...i, text: newValue } : i);
+                    return { ...b, content: { ...b.content, items: newItems } };
+                } else {
+                    return { ...b, content: { ...b.content, text: newValue } };
+                }
+            }
+            return b;
+        });
+        updateNote({ ...noteRef.current, content: newContent });
+
+        setTimeout(() => {
+            const { current: activeInput } = activeInputRef;
+            if (activeInput?.element && activeInput.blockId === blockId && activeInput.itemId === itemId) {
+                const newCursorPos = startPos + textToInsert.length;
+                activeInput.element.focus();
+                activeInput.element.setSelectionRange(newCursorPos, newCursorPos);
+            }
+        }, 0);
+
+        if (result.isFinal) {
+            return {
+                blockId,
+                itemId,
+                startPos: startPos + textToInsert.length,
+                initialValue: newValue,
+            };
+        } else {
+            return currentDictationState;
+        }
+    });
+  }, [updateNote]);
+
+  const { isRecording: isDictating, startRecording: startDictation, stopRecording: stopDictation } = useWhisper(handleTranscription);
+
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn("Speech recognition not supported in this browser.");
-      return;
+    if (shortcutAction && shortcutAction.noteId === note.id) {
+      // Use a timeout to ensure the component has rendered and refs are available
+      setTimeout(() => {
+        switch (shortcutAction.action) {
+          case 'audio':
+            handleStartRecording();
+            break;
+          case 'photo':
+            photoInputRef.current?.click();
+            break;
+          case 'video':
+            videoInputRef.current?.click();
+            break;
+        }
+        onShortcutHandled();
+      }, 100);
     }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    recognitionRef.current = recognition;
-
-    const resetSilenceTimeout = () => {
-        if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
-        silenceTimeoutRef.current = window.setTimeout(() => {
-            if (isDictatingRef.current) {
-               handleToggleDictation(); // This will stop the dictation
-            }
-        }, 15000);
-    };
-    
-    recognition.onstart = () => {
-        resetSilenceTimeout();
-    };
-
-    recognition.onresult = (event: any) => {
-        resetSilenceTimeout();
-        const blockId = dictatedBlockIdRef.current;
-        if (!blockId) return;
-
-        let final_transcript = '';
-        let interim_transcript = '';
-
-        for (let i = 0; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                final_transcript += event.results[i][0].transcript;
-            } else {
-                interim_transcript += event.results[i][0].transcript;
-            }
-        }
-    
-        finalTranscriptRef.current = final_transcript.trim();
-        const fullTranscript = (final_transcript + interim_transcript).trim();
-
-        const currentNote = noteRef.current;
-        const newContent = currentNote.content.map(b => 
-            b.id === blockId ? { ...b, content: { text: fullTranscript || 'Listening...' } } : b
-        );
-        updateNoteRef.current({ ...currentNote, content: newContent });
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      const fatalErrors = ['not-allowed', 'service-not-allowed'];
-      if (fatalErrors.includes(event.error)) {
-        isDictatingRef.current = false;
-        setIsDictating(false);
-        if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
-      }
-    };
-    
-    recognition.onend = () => {
-        if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
-
-        if (isDictatingRef.current) {
-            setTimeout(() => {
-                if (isDictatingRef.current && recognitionRef.current) {
-                    try {
-                        recognitionRef.current.start();
-                    } catch(e) {
-                        console.error("Error restarting recognition:", e);
-                        isDictatingRef.current = false;
-                        setIsDictating(false);
-                    }
-                }
-            }, 100);
-            return;
-        }
-
-        const currentNote = noteRef.current;
-        const blockId = dictatedBlockIdRef.current;
-        if (blockId && currentNote) {
-            const finalSpokenText = finalTranscriptRef.current.trim();
-            const finalContent = currentNote.content.map(b => {
-                if (b.id === blockId) {
-                    if (finalSpokenText === '' || finalSpokenText === 'Listening...') {
-                        return null; 
-                    }
-                    return { ...b, content: { text: finalSpokenText } };
-                }
-                return b;
-            }).filter((b): b is ContentBlock => b !== null);
-            
-            updateNoteRef.current({ ...currentNote, content: finalContent });
-        }
-        setDictatedBlockId(null);
-        finalTranscriptRef.current = '';
-    };
-
-    return () => {
-      if (recognitionRef.current) {
-        isDictatingRef.current = false; 
-        recognitionRef.current.stop();
-      }
-      if (silenceTimeoutRef.current) {
-          clearTimeout(silenceTimeoutRef.current);
-      }
-    };
-  }, []);
+  }, [shortcutAction, note.id]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     updateNote({ ...note, title: e.target.value });
@@ -454,7 +407,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
         if (!media || !media.url) throw new Error("Media not found in DB");
 
         const base64data = media.url.split(',')[1];
-        const answer = await askQuestionAboutImage(base64data, imageBlock.content.mimeType || '', question);
+        const answer = await answerQuestionAboutImage(base64data, imageBlock.content.mimeType || '', question);
         
         const imageBlockIndex = noteRef.current.content.findIndex(b => b.id === blockId);
         const answerBlock = addBlock(ContentBlockType.TEXT, { text: answer }, undefined, true) as ContentBlock;
@@ -497,24 +450,42 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
     return `${mins}:${secs}`;
   }
 
+  const handleInputFocus = (element: HTMLTextAreaElement | HTMLInputElement, blockId: string, itemId?: string) => {
+    activeInputRef.current = { element, blockId, itemId };
+  };
+  
   const handleToggleDictation = () => {
-    if (!recognitionRef.current) {
-        alert("Speech recognition is not supported by your browser.");
-        return;
-    }
-    
-    const currentlyDictating = !isDictating;
-    isDictatingRef.current = currentlyDictating;
-    setIsDictating(currentlyDictating);
-
-    if (currentlyDictating) {
-        finalTranscriptRef.current = '';
-        const newBlock = addBlock(ContentBlockType.TEXT, { text: 'Listening...' }, undefined, true) as ContentBlock;
-        updateNote({ ...noteRef.current, content: [...noteRef.current.content, newBlock] });
-        setDictatedBlockId(newBlock.id);
-        recognitionRef.current.start();
+    if (isDictating) {
+      stopDictation();
+      setDictationState(null);
     } else {
-        recognitionRef.current.stop();
+      const { current: activeInput } = activeInputRef;
+      if (activeInput) {
+        setDictationState({
+          blockId: activeInput.blockId,
+          itemId: activeInput.itemId,
+          startPos: activeInput.element.selectionStart,
+          initialValue: activeInput.element.value,
+        });
+        startDictation();
+      } else {
+        const newBlock = addBlock(ContentBlockType.TEXT, { text: '' }, note.content.length, true) as ContentBlock;
+        updateNote({ ...note, content: [...note.content, newBlock] });
+        
+        setTimeout(() => {
+          const newElement = document.querySelector(`textarea[placeholder="Type something..."]:last-of-type`) as HTMLTextAreaElement;
+          if (newElement) {
+            newElement.focus();
+            activeInputRef.current = { element: newElement, blockId: newBlock.id };
+            setDictationState({
+              blockId: newBlock.id,
+              startPos: 0,
+              initialValue: '',
+            });
+            startDictation();
+          }
+        }, 100);
+      }
     }
   };
 
@@ -585,6 +556,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                         <SparklesIcon className="w-6 h-6 text-blue-400 animate-pulse" />
                     </div>
                 )}
+                {note.titleError && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2" title={`Error: ${note.titleError}`}>
+                        <span className="text-red-500 text-xs font-bold">!</span>
+                    </div>
+                )}
             </div>
             
             <div className="space-y-4">
@@ -592,18 +568,23 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                 <ContentBlockComponent 
                     key={block.id} 
                     block={block} 
+                    note={note}
+                    updateNote={updateNote}
                     updateBlock={updateBlock} 
                     deleteBlock={deleteBlock}
                     onAskAIAboutImage={handleAskAIAboutImage}
                     askingImageAIBlockId={askingImageAIBlockId}
+                    onInputFocus={handleInputFocus}
                 />
               ))}
             </div>
 
+            <input type="file" ref={photoInputRef} onChange={handleFileSelect} className="hidden" accept="image/*" capture="environment" />
+            <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture="environment" />
             <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
             
             <div className="mt-8 pt-6 border-t border-gray-800 space-y-6">
-                {(note.tagsAreGenerating || (note.tags && note.tags.length > 0)) && (
+                {(note.tagsAreGenerating || (note.tags && note.tags.length > 0) || note.tagsError) && (
                     <div className="flex items-start gap-3 flex-wrap">
                         <TagIcon className="w-5 h-5 text-gray-500 flex-shrink-0 mt-1.5" />
                         <div className="flex flex-wrap gap-2">
@@ -611,6 +592,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                               <div className="flex items-center gap-2 text-sm text-gray-500 italic">
                                   <SparklesIcon className="w-4 h-4 animate-pulse" />
                                   <span>AI is generating tags...</span>
+                              </div>
+                          )}
+                          {note.tagsError && (
+                              <div className="flex items-center gap-2 text-sm text-red-500 italic" title={note.tagsError}>
+                                  <span>Error generating tags.</span>
                               </div>
                           )}
                           {note.tags && note.tags.map(tag => (
@@ -678,7 +664,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     <button 
                       onClick={isRecordingForChecklist ? handleStopChecklistRecording : handleStartChecklistRecording} 
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecordingForChecklist ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
-                      disabled={isRecording || isAiBusy || isDictating}
+                      disabled={isRecording || isDictating || isAiBusy}
                     >
                         {isRecordingForChecklist ? (
                             <>
@@ -696,7 +682,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     <button 
                         onClick={isRecording ? handleStopRecording : handleStartRecording} 
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecording ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                        disabled={isRecordingForChecklist || isAiBusy || isDictating}
+                        disabled={isRecordingForChecklist || isDictating || isAiBusy}
                     >
                         {isRecording ? (
                             <>
@@ -710,23 +696,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                             </>
                         )}
                     </button>
-                     <button 
-                        onClick={handleToggleDictation} 
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isDictating ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                        disabled={isRecording || isRecordingForChecklist || isAiBusy}
-                    >
-                        {isDictating ? (
-                            <>
-                                <StopIcon className="w-5 h-5" />
-                                <span>Stop Dictation</span>
-                            </>
-                        ) : (
-                            <>
-                                <MicrophoneIcon className="w-5 h-5" />
-                                <span>Dictate</span>
-                            </>
-                        )}
-                    </button>
+                    <DictateButton 
+                        isRecording={isDictating}
+                        onClick={handleToggleDictation}
+                        disabled={isRecording || isRecordingForChecklist || isAiBusy} 
+                    />
                     <button 
                         onClick={handleGenericFileClick}
                         className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"

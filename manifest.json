@@ -1,0 +1,53 @@
+{
+  "short_name": "Granula",
+  "name": "Granula",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1C1C1C",
+  "background_color": "#000000",
+  "description": "An application to quickly and easily capture your ideas, thoughts, and plans.",
+  "shortcuts": [
+    {
+      "name": "New Note",
+      "short_name": "New Note",
+      "description": "Create a new blank note",
+      "url": "/index.html?action=new-note",
+      "icons": [{ "src": "/logo.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Take Photo",
+      "short_name": "Photo",
+      "description": "Open camera to take a picture",
+      "url": "/index.html?action=take-photo",
+      "icons": [{ "src": "/logo.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Record Video",
+      "short_name": "Video",
+      "description": "Open camera to record a video",
+      "url": "/index.html?action=record-video",
+      "icons": [{ "src": "/logo.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Record Audio",
+      "short_name": "Audio",
+      "description": "Start recording a voice memo",
+      "url": "/index.html?action=record-audio",
+      "icons": [{ "src": "/logo.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Start Conversation",
+      "short_name": "Converse",
+      "description": "Launch voice conversation mode",
+      "url": "/index.html?action=conversation",
+      "icons": [{ "src": "/logo.svg", "sizes": "192x192" }]
+    }
+  ]
+}
