@@ -24,8 +24,9 @@ export const useLongPress = (
   { shouldPreventDefault = true, delay = 500 }: LongPressOptions = {}
 ) => {
   const [longPressTriggered, setLongPressTriggered] = useState(false);
-  const timeout = useRef<number>();
-  const target = useRef<EventTarget>();
+  // FIX: Explicitly initialize useRef with null. This resolves a TypeScript error where the compiler expects an argument for useRef when a generic type is provided.
+  const timeout = useRef<number | null>(null);
+  const target = useRef<EventTarget | null>(null);
 
   const start = useCallback(
     (event: React.MouseEvent | React.TouchEvent) => {
@@ -35,7 +36,7 @@ export const useLongPress = (
       }
 
       if (shouldPreventDefault && event.target) {
-        event.target.addEventListener('touchend', preventDefault, { passive: false });
+        (event.target as EventTarget).addEventListener('touchend', preventDefault, { passive: false });
         target.current = event.target;
       }
       timeout.current = window.setTimeout(() => {
@@ -54,7 +55,7 @@ export const useLongPress = (
       }
       setLongPressTriggered(false);
       if (shouldPreventDefault && target.current) {
-        target.current.removeEventListener('touchend', preventDefault);
+        (target.current as EventTarget).removeEventListener('touchend', preventDefault);
       }
     },
     [shouldPreventDefault, onClick, longPressTriggered]
