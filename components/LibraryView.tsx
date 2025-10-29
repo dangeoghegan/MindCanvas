@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Note, ContentBlockType } from '../types';
-import { DocumentIcon, TagIcon, ChevronDownIcon, XMarkIcon, SearchIcon, UserIcon, TrashIcon } from './icons';
+import { DocumentIcon, TagIcon, ChevronDownIcon, XMarkIcon, SearchIcon, UserIcon, TrashIcon, CogIcon } from './icons';
 import { useLongPress } from '../hooks/useLongPress';
 
 interface LibraryViewProps {
@@ -183,9 +183,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
     <div className="flex-1 bg-[#1C1C1C] text-white p-6 md:p-12 overflow-y-auto">
       <div className="max-w-4xl mx-auto">
         <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
-          <div className="flex items-center gap-4">
-            <h1 className="text-3xl font-bold text-white">Library</h1>
-          </div>
+          <h1 className="text-3xl font-bold text-white">Library</h1>
           
           <div className="flex flex-wrap gap-4 w-full sm:w-auto">
             {masterPeopleList.length > 0 && (

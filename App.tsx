@@ -90,7 +90,7 @@ function App() {
   const [selectedVoice, setSelectedVoice] = useLocalStorage<VoiceName>('granula-selected-voice', 'Kore');
 
   const [isConversationModeActive, setIsConversationModeActive] = useState(false);
-  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' } | null>(null);
+  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' } | null>(null);
 
 
   const addPersonToMasterList = (name: string) => {
@@ -151,12 +151,22 @@ function App() {
     setCurrentView('note');
   }, [setNotes, setActiveNoteId, setCurrentView]);
 
-  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio') => {
+  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed') => {
+    let content: ContentBlock[] = [];
+    if (action === 'embed') {
+        content.push({ 
+            id: self.crypto.randomUUID(), 
+            type: ContentBlockType.EMBED, 
+            content: {}, 
+            createdAt: new Date().toISOString() 
+        });
+    }
+
     const newNote: Note = {
       id: self.crypto.randomUUID(),
       title: 'Untitled Note',
       createdAt: new Date().toISOString(),
-      content: [],
+      content: content,
     };
     setNotes(prev => [newNote, ...prev]);
     setShortcutAction({ noteId: newNote.id, action });
@@ -263,7 +273,7 @@ function App() {
                 if (block.type === ContentBlockType.IMAGE && block.content.dbKey && typeof block.content.faces === 'undefined' && !block.content.isRecognizingFaces) {
                     const knownFaces = faceRecognitionService.loadKnownFaces();
                     if (knownFaces.length === 0) {
-                        // Mark as processed if there are no people to recognize
+                        // Mark as processed if there are no people to recognise
                         setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, faces: [] } } : b) } : n));
                         continue;
                     }
@@ -283,7 +293,7 @@ function App() {
                             setNotes(currentNotes => currentNotes.map(n => {
                                 if (n.id === note.id) {
                                     const existingPeople = new Set(n.people || []);
-                                    detectedNames.forEach(name => existingPeople.add(name));
+                                    detectedNames.forEach(name => existingPeople.add(name);
                                     
                                     return {
                                         ...n,
@@ -329,10 +339,10 @@ function App() {
                             const base64data = media.url.split(',')[1];
 
                             if (isImage) {
-                                const recognizedPeople = (block.content.faces || [])
+                                const recognisedPeople = (block.content.faces || [])
                                     .filter(face => face.name !== 'Unknown')
                                     .map(face => face.name);
-                                result = await generateImageDescription(base64data, media.mimeType, recognizedPeople);
+                                result = await generateImageDescription(base64data, media.mimeType, recognisedPeople);
                             }
                             if (isVideo) {
                                 result = await summarizeVideo(base64data, media.mimeType);
@@ -628,6 +638,12 @@ function App() {
   
   return (
     <div className="h-screen w-screen bg-black text-white flex flex-col font-sans">
+      {/* ⬇️ Top buffer band + subtle bottom hairline */}
+      <div className="shrink-0 relative">
+        <div className="h-3" /> {/* adjust to change buffer height */}
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-[#E6E6E6]/25" />
+      </div>
+
       <main className="flex-1 flex flex-col overflow-y-auto pb-24">
         {renderView()}
       </main>
@@ -635,10 +651,11 @@ function App() {
         <AIPromptBar onAskAI={handleAskAI} isLoading={isLoadingAI} aiResponse={aiResponse} clearResponse={() => setAiResponse(null)} />
       ) : (
         <BottomNavBar
-            currentView={currentView as 'dashboard' | 'chat' | 'library' | 'settings'}
+            currentView={currentView as 'dashboard' | 'chat' | 'library' | 'media' | 'settings'}
             onSetView={handleSetView}
             onNewNote={handleNewNote}
             onStartConversation={() => setIsConversationModeActive(true)}
+            onShortcut={handleShortcut}
         />
       )}
       {isConversationModeActive && <ConversationModeOverlay notes={notes} selectedVoice={selectedVoice} onClose={() => setIsConversationModeActive(false)} />}

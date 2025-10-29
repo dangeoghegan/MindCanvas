@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Note, ContentBlock, ContentBlockType, ChecklistItem } from '../types';
 // FIX: Changed import to a default import to match the export type in ContentBlockComponent.
 import ContentBlockComponent from './ContentBlockComponent';
-import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon, CameraIcon, PhotoIcon, VideoCameraIcon } from './icons';
+import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon, CameraIcon, PhotoIcon, VideoCameraIcon, LinkIcon } from './icons';
 // FIX: Renamed function to match export from geminiService.
 import { generateChecklistFromAudio, answerQuestionAboutImage } from '../services/geminiService';
 // FIX: Imported 'getMedia' to resolve 'Cannot find name' error.
@@ -17,7 +17,7 @@ interface NoteEditorProps {
   onClose: () => void;
   masterPeopleList: string[];
   onAddPersonToMasterList: (name: string) => void;
-  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' } | null;
+  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' } | null;
   onShortcutHandled: () => void;
 }
 
@@ -174,7 +174,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
 
   useEffect(() => {
     if (shortcutAction && shortcutAction.noteId === note.id) {
-      // Use a timeout to ensure the component has rendered and refs are available
       setTimeout(() => {
         switch (shortcutAction.action) {
           case 'audio':
@@ -185,6 +184,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
             break;
           case 'video':
             videoInputRef.current?.click();
+            break;
+          case 'dictate':
+            handleToggleDictation();
             break;
         }
         onShortcutHandled();
@@ -479,7 +481,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
         setDictationState({
           blockId: activeInput.blockId,
           itemId: activeInput.itemId,
-          startPos: activeInput.element.selectionStart,
+          startPos: activeInput.element.selectionStart || 0,
           initialValue: activeInput.element.value,
         });
         startDictation();
@@ -488,7 +490,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
         updateNote({ ...note, content: [...note.content, newBlock] });
         
         setTimeout(() => {
-          const newElement = document.querySelector(`textarea[placeholder="Type something..."]:last-of-type`) as HTMLTextAreaElement;
+          const newElement = document.querySelector(`[placeholder="Type something..."]`) as HTMLTextAreaElement;
           if (newElement) {
             newElement.focus();
             activeInputRef.current = { element: newElement, blockId: newBlock.id };
