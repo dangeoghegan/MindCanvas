@@ -293,7 +293,7 @@ function App() {
                             setNotes(currentNotes => currentNotes.map(n => {
                                 if (n.id === note.id) {
                                     const existingPeople = new Set(n.people || []);
-                                    detectedNames.forEach(name => existingPeople.add(name);
+                                    detectedNames.forEach(name => existingPeople.add(name));
                                     
                                     return {
                                         ...n,
