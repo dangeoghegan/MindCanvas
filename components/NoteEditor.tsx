@@ -596,8 +596,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
               ))}
             </div>
 
-            <input type="file" ref={photoInputRef} onChange={handleFileSelect} className="hidden" accept="image/*" capture="environment" />
-            <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture="environment" />
+            <input type="file" ref={photoInputRef} onChange={handleFileSelect} className="hidden" accept="image/*" capture />
+            <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture />
             <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
             
             <div className="mt-8 pt-6 border-t border-gray-800 space-y-6">

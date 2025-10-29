@@ -640,7 +640,7 @@ function App() {
     <div className="h-screen w-screen bg-black text-white flex flex-col font-sans">
       {/* ⬇️ Top buffer band + subtle bottom hairline */}
       <div className="shrink-0 relative">
-        <div className="h-3" /> {/* adjust to change buffer height */}
+        <div className="h-6" /> {/* adjust to change buffer height */}
         <div className="absolute bottom-0 left-0 right-0 h-px bg-[#E6E6E6]/25" />
       </div>
 
