@@ -6,8 +6,6 @@ const urlsToCache = [
   '/logo.svg',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  '/icons/maskable-icon-192.png',
-  '/icons/maskable-icon-512.png',
   'https://cdn.tailwindcss.com',
   'https://aistudiocdn.com/react@^19.2.0',
   'https://aistudiocdn.com/react-dom@^19.2.0/client',
@@ -30,16 +28,14 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request)
       .then(response => {
-        // Cache hit - return response
         if (response) {
           return response;
         }
 
         return fetch(event.request).then(
           response => {
-            // Check if we received a valid response
             if(!response || response.status !== 200 || response.type !== 'basic') {
-              if (response.type === 'opaque') return response; // Allow opaque responses (e.g. from CDNs)
+              if (response.type === 'opaque') return response;
             }
 
             const responseToCache = response.clone();
@@ -70,3 +66,18 @@ self.addEventListener('activate', event => {
     })
   );
 });
+```
+
+---
+
+## **NOW YOU ONLY NEED 2 FILES:**
+
+### **File Structure:**
+```
+project-root/
+├── icons/
+│   ├── icon-192.png    ← ONLY THIS
+│   └── icon-512.png    ← AND THIS
+├── index.html
+├── manifest.json
+└── sw.js
