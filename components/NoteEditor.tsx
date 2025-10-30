@@ -17,7 +17,7 @@ interface NoteEditorProps {
   onClose: () => void;
   masterPeopleList: string[];
   onAddPersonToMasterList: (name: string) => void;
-  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' } | null;
+  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' } | null;
   onShortcutHandled: () => void;
 }
 
@@ -115,6 +115,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
   }, []);
 
@@ -188,6 +191,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
           case 'dictate':
             handleToggleDictation();
             break;
+          case 'ai-checklist':
+            handleStartChecklistRecording();
+            break;
         }
         onShortcutHandled();
       }, 100);
@@ -236,9 +242,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   };
   
   const handleStartChecklistRecording = async () => {
+    if (mediaRecorderRef.current) return;
+    updateNote({ ...note, isAiChecklistGenerating: true });
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
+        const options = { mimeType: 'audio/webm' };
+        const mediaRecorder = new MediaRecorder(stream, options);
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
 
@@ -247,7 +256,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
         };
 
         mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const audioBlob = new Blob(audioChunksRef.current, { type: options.mimeType });
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
@@ -255,18 +264,30 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                 setIsAiChecklistLoading(true);
                 try {
                     const pureBase64 = base64data.split(',')[1];
-                    const items = await generateChecklistFromAudio(pureBase64, 'audio/webm');
+                    const items = await generateChecklistFromAudio(pureBase64, options.mimeType);
+                    const currentNote = noteRef.current;
+                    let newContent = currentNote.content;
+
                     if (items.length > 0) {
-                        addBlock(ContentBlockType.CHECKLIST, { items });
+                        const newBlock = addBlock(ContentBlockType.CHECKLIST, { items }, undefined, true) as ContentBlock;
+                        newContent = [...currentNote.content, newBlock];
                     }
+                    updateNote({ ...currentNote, content: newContent, isAiChecklistGenerating: false });
+
                 } catch (error) {
                     console.error('Failed to generate checklist from audio', error);
-                    addBlock(ContentBlockType.TEXT, { text: 'Failed to generate checklist from audio.' });
+                    const errorBlock = addBlock(ContentBlockType.TEXT, { text: 'Failed to generate checklist from audio.' }, undefined, true) as ContentBlock;
+                    updateNote({ ...noteRef.current, content: [...noteRef.current.content, errorBlock], isAiChecklistGenerating: false });
                 } finally {
                     setIsAiChecklistLoading(false);
                 }
             };
+            // Cleanup logic now inside onstop handler
             stream.getTracks().forEach(track => track.stop());
+            setIsRecordingForChecklist(false);
+            if(timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+            setChecklistRecordingTime(0);
+            mediaRecorderRef.current = null;
         };
 
         mediaRecorder.start();
@@ -278,23 +299,23 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
     } catch (err) {
         console.error("Error starting recording:", err);
         alert("Microphone access was denied. Please allow microphone access in your browser settings to record audio.");
+        updateNote({ ...note, isAiChecklistGenerating: false });
     }
   };
 
   const handleStopChecklistRecording = () => {
-      if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
           mediaRecorderRef.current.stop();
-          setIsRecordingForChecklist(false);
-          if(timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-          setChecklistRecordingTime(0);
       }
   };
 
 
   const handleStartRecording = async () => {
+    if (mediaRecorderRef.current) return;
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
+        const options = { mimeType: 'audio/webm' };
+        const mediaRecorder = new MediaRecorder(stream, options);
         mediaRecorderRef.current = mediaRecorder;
         audioChunksRef.current = [];
 
@@ -303,18 +324,23 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
         };
 
         mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            const audioBlob = new Blob(audioChunksRef.current, { type: options.mimeType });
             const reader = new FileReader();
             reader.readAsDataURL(audioBlob);
             reader.onloadend = async () => {
                 const dataUrl = reader.result as string;
                 const blockId = self.crypto.randomUUID();
                 
-                await saveMedia(blockId, { url: dataUrl, mimeType: 'audio/webm' });
-                const newAudioBlock = addBlock(ContentBlockType.AUDIO, { dbKey: blockId, mimeType: 'audio/webm' }, undefined, true) as ContentBlock;
+                await saveMedia(blockId, { url: dataUrl, mimeType: options.mimeType });
+                const newAudioBlock = addBlock(ContentBlockType.AUDIO, { dbKey: blockId, mimeType: options.mimeType }, undefined, true) as ContentBlock;
                 updateNote({ ...noteRef.current, content: [...noteRef.current.content, newAudioBlock]});
             };
+            // Cleanup logic now inside onstop handler
             stream.getTracks().forEach(track => track.stop());
+            setIsRecording(false);
+            if(timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+            setRecordingTime(0);
+            mediaRecorderRef.current = null;
         };
 
         mediaRecorder.start();
@@ -330,15 +356,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   };
 
   const handleStopRecording = () => {
-      if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
           mediaRecorderRef.current.stop();
-          setIsRecording(false);
-          if(timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-          setRecordingTime(0);
       }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, saveToGallery = false) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -346,6 +369,32 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        
+        if (saveToGallery && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
+            try {
+                const url = URL.createObjectURL(file);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const extension = file.name.split('.').pop() || (file.type.startsWith('image/') ? 'jpg' : 'mp4');
+                const prefix = file.type.startsWith('image/') ? 'IMG' : 'VID';
+
+                a.download = `${prefix}_${timestamp}.${extension}`;
+                document.body.appendChild(a);
+                a.click();
+                
+                // Cleanup after download is initiated
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                }, 100);
+            } catch (error) {
+                console.error("Failed to save media to gallery:", error);
+            }
+        }
+
         const blockId = self.crypto.randomUUID();
         let dataUrl: string;
 
@@ -546,7 +595,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
     );
   }, [personInput, masterPeopleList, note.people]);
 
-  const isAiBusy = isAiChecklistLoading || askingImageAIBlockId !== null || note.titleIsGenerating || note.tagsAreGenerating;
+  const isAiBusy = isAiChecklistLoading || askingImageAIBlockId !== null || note.titleIsGenerating || note.tagsAreGenerating || note.isAiChecklistGenerating;
 
   return (
     <div className="flex-1 bg-background text-foreground flex flex-col">
@@ -596,8 +645,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
               ))}
             </div>
 
-            <input type="file" ref={photoInputRef} onChange={handleFileSelect} className="hidden" accept="image/*" capture />
-            <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture />
+            <input type="file" ref={photoInputRef} onChange={(e) => handleFileSelect(e, true)} className="hidden" accept="image/*" capture />
+            <input type="file" ref={videoInputRef} onChange={(e) => handleFileSelect(e, true)} className="hidden" accept="video/*" capture />
             <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
             
             <div className="mt-8 pt-6 border-t border-border space-y-6">

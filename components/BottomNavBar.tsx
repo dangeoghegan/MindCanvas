@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpenIcon, ChatIcon, PlusIcon, PhotoIcon, CogIcon, CalendarCheckIcon, VideoCameraIcon, MicrophoneIcon, LinkIcon } from './icons';
+import { BookOpenIcon, ChatIcon, PlusIcon, PhotoIcon, CogIcon, CalendarCheckIcon, VideoCameraIcon, MicrophoneIcon, LinkIcon, SparklesIcon } from './icons';
 import { useLongPress } from '../hooks/useLongPress';
 
 interface BottomNavBarProps {
@@ -7,7 +7,7 @@ interface BottomNavBarProps {
   onSetView: (view: 'dashboard' | 'chat' | 'library' | 'media' | 'settings') => void;
   onNewNote: () => void;
   onStartConversation: () => void;
-  onShortcut: (action: 'photo' | 'video' | 'dictate' | 'embed') => void;
+  onShortcut: (action: 'photo' | 'video' | 'dictate' | 'embed' | 'ai-checklist') => void;
 }
 
 const NavItem: React.FC<{
@@ -32,6 +32,7 @@ const speedDialActions = [
     { action: 'dictate' as const, label: 'Dictate', icon: <MicrophoneIcon className="w-5 h-5" /> },
     { action: 'video' as const, label: 'Record Video', icon: <VideoCameraIcon className="w-5 h-5" /> },
     { action: 'photo' as const, label: 'Take Photo', icon: <PhotoIcon className="w-5 h-5" /> },
+    { action: 'ai-checklist' as const, label: 'AI Checklist', icon: <SparklesIcon className="w-5 h-5" /> },
 ];
 
 const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentView, onSetView, onNewNote, onStartConversation, onShortcut }) => {
@@ -63,7 +64,7 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentView, onSetView, onN
     };
   }, []);
 
-  const handleShortcutClick = (action: 'photo' | 'video' | 'dictate' | 'embed') => {
+  const handleShortcutClick = (action: 'photo' | 'video' | 'dictate' | 'embed' | 'ai-checklist') => {
     onShortcut(action);
     setIsSpeedDialOpen(false);
   };

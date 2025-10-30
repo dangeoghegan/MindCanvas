@@ -1,3 +1,5 @@
+import { FaceDescriptor } from './services/faceRecognitionService';
+
 export interface ChecklistItem {
   id: string;
   text: string;
@@ -62,6 +64,7 @@ export interface Note {
   tagsAreGenerating?: boolean;
   tagsError?: string | null;
   people?: string[];
+  isAiChecklistGenerating?: boolean;
 }
 
 export interface ChatMessageSourceNote {
@@ -90,4 +93,21 @@ export interface VoiceOption {
   id: VoiceName;
   name: string;
   description: string;
+}
+
+export type AITaskType = 
+  | 'recognizeFaces'
+  | 'generateImageDescription'
+  | 'summarizeVideo'
+  | 'summarizeAudio'
+  | 'summarizePdf'
+  | 'generateTitle'
+  | 'generateTags';
+
+export interface AITask {
+  id: string; // e.g., `${noteId}-${blockId || 'note'}-${type}`
+  type: AITaskType;
+  noteId: string;
+  blockId?: string;
+  // This could be expanded with context if needed, but for now, IDs are enough.
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName, Theme } from './types';
+import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName, Theme, AITask } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import NoteEditor from './components/NoteEditor';
 import ReviewView from './components/ReviewView';
@@ -91,7 +91,11 @@ function App() {
   const [theme, setTheme] = useLocalStorage<Theme>('granula-theme', 'light');
 
   const [isConversationModeActive, setIsConversationModeActive] = useState(false);
-  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' } | null>(null);
+  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' } | null>(null);
+
+  // Background Task Queue
+  const [taskQueue, setTaskQueue] = useLocalStorage<AITask[]>('granula-ai-task-queue', []);
+  const [isTaskRunning, setIsTaskRunning] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -155,7 +159,7 @@ function App() {
     setCurrentView('note');
   }, [setNotes, setActiveNoteId, setCurrentView]);
 
-  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed') => {
+  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist') => {
     let content: ContentBlock[] = [];
     if (action === 'embed') {
         content.push({ 
@@ -269,177 +273,186 @@ function App() {
     runMigration();
   }, [setNotes]);
 
-  useEffect(() => {
-    const runNextAITask = async () => {
+    // --- Start of Background Task Manager ---
+    // Effect 1: Discover and queue new tasks
+    useEffect(() => {
+        const newTasks: AITask[] = [];
+        const existingTaskIds = new Set(taskQueue.map(t => t.id));
+
         for (const note of notes) {
-            // --- Task: Face Recognition in Images (RUNS FIRST) ---
+            // Task: Face Recognition
             for (const block of note.content) {
                 if (block.type === ContentBlockType.IMAGE && block.content.dbKey && typeof block.content.faces === 'undefined' && !block.content.isRecognizingFaces) {
-                    const knownFaces = faceRecognitionService.loadKnownFaces();
-                    if (knownFaces.length === 0) {
-                        // Mark as processed if there are no people to recognise
-                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, faces: [] } } : b) } : n));
-                        continue;
+                    const taskId = `${note.id}-${block.id}-recognizeFaces`;
+                    if (!existingTaskIds.has(taskId)) {
+                        newTasks.push({ id: taskId, type: 'recognizeFaces', noteId: note.id, blockId: block.id });
                     }
-
-                    setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: true, faceRecognitionError: null } } : b) } : n));
-
-                    try {
-                        const media = await getMedia(block.content.dbKey);
-                        if (media && media.url) {
-                            const imageElement = await faceRecognitionService.createImageElement(media.url);
-                            const detectedFaces = await faceRecognitionService.recognizeFaces(imageElement, knownFaces);
-                            
-                            const detectedNames = detectedFaces
-                                .filter(f => f.name !== 'Unknown')
-                                .map(f => f.name);
-
-                            setNotes(currentNotes => currentNotes.map(n => {
-                                if (n.id === note.id) {
-                                    const existingPeople = new Set(n.people || []);
-                                    detectedNames.forEach(name => existingPeople.add(name));
-                                    
-                                    return {
-                                        ...n,
-                                        people: Array.from(existingPeople).sort(),
-                                        content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: false, faces: detectedFaces } } : b)
-                                    };
-                                }
-                                return n;
-                            }));
-                        } else {
-                            throw new Error("Media not found in DB for face recognition.");
-                        }
-                    } catch(error) {
-                        console.error(`Face recognition for block ${block.id} failed:`, error);
-                        const errorMessage = error instanceof Error ? error.message : "Face recognition failed.";
-                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: false, faceRecognitionError: errorMessage } } : b) } : n));
-                    }
-                    return; // One task at a time
                 }
             }
 
-            // --- Task: Process media blocks (Image Description, Video/Audio/PDF Summary) ---
+            // Task: Media Processing (Summaries, Descriptions)
             for (const block of note.content) {
-                const isImage = block.type === ContentBlockType.IMAGE && !block.content.description && !block.content.isGeneratingDescription && !block.content.descriptionError && typeof block.content.faces !== 'undefined';
-                const isVideo = block.type === ContentBlockType.VIDEO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
-                const isAudio = block.type === ContentBlockType.AUDIO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
-                const isPdf = block.type === ContentBlockType.FILE && block.content.mimeType === 'application/pdf' && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
+                if (block.content.dbKey) {
+                    const isImage = block.type === ContentBlockType.IMAGE && !block.content.description && !block.content.isGeneratingDescription && !block.content.descriptionError && typeof block.content.faces !== 'undefined';
+                    const isVideo = block.type === ContentBlockType.VIDEO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
+                    const isAudio = block.type === ContentBlockType.AUDIO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
+                    const isPdf = block.type === ContentBlockType.FILE && block.content.mimeType === 'application/pdf' && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
 
-                if (block.content.dbKey && (isImage || isVideo || isAudio || isPdf)) {
-                    
-                    setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? {
-                        ...n,
-                        content: n.content.map(b => b.id === block.id ? {
-                            ...b,
-                            content: { ...b.content, isGeneratingDescription: isImage, isGeneratingSummary: isVideo || isAudio || isPdf }
-                        } : b)
-                    } : n));
-
-                    try {
-                        const media = await getMedia(block.content.dbKey);
-                        if (media && media.url) {
-                            let result: string | null = null;
-                            const base64data = media.url.split(',')[1];
-
-                            if (isImage) {
-                                const recognisedPeople = (block.content.faces || [])
-                                    .filter(face => face.name !== 'Unknown')
-                                    .map(face => face.name);
-                                result = await generateImageDescription(base64data, media.mimeType, recognisedPeople);
-                            }
-                            if (isVideo) {
-                                result = await summarizeVideo(base64data, media.mimeType);
-                            }
-                            if (isAudio) {
-                                result = await summarizeAudio(base64data, media.mimeType);
-                            }
-                            if (isPdf) {
-                                result = await summarizePdf(base64data, media.mimeType);
-                            }
-
-                             setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? {
-                                ...n,
-                                content: n.content.map(b => b.id === block.id ? {
-                                    ...b,
-                                    content: {
-                                        ...b.content,
-                                        description: isImage ? result || b.content.description : b.content.description,
-                                        summary: (isVideo || isAudio || isPdf) ? result || b.content.summary : b.content.summary,
-                                        isGeneratingDescription: false, isGeneratingSummary: false,
-                                    }
-                                } : b)
-                            } : n));
-                        }
-                    } catch (error) {
-                        console.error(`Background AI task for block ${block.id} failed:`, error);
-                        const errorMessage = error instanceof Error ? error.message : "An unknown AI error occurred.";
-                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? {
-                            ...n,
-                            content: n.content.map(b => b.id === block.id ? {
-                                ...b,
-                                content: {
-                                    ...b.content,
-                                    isGeneratingDescription: false,
-                                    isGeneratingSummary: false,
-                                    descriptionError: isImage ? errorMessage : b.content.descriptionError,
-                                    summaryError: (isVideo || isAudio || isPdf) ? errorMessage : b.content.summaryError,
-                                }
-                            } : b)
-                        } : n));
+                    if (isImage) {
+                        const taskId = `${note.id}-${block.id}-generateImageDescription`;
+                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'generateImageDescription', noteId: note.id, blockId: block.id });
                     }
-                    return; // Process one task at a time
+                    if (isVideo) {
+                        const taskId = `${note.id}-${block.id}-summarizeVideo`;
+                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'summarizeVideo', noteId: note.id, blockId: block.id });
+                    }
+                    if (isAudio) {
+                        const taskId = `${note.id}-${block.id}-summarizeAudio`;
+                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'summarizeAudio', noteId: note.id, blockId: block.id });
+                    }
+                    if (isPdf) {
+                        const taskId = `${note.id}-${block.id}-summarizePdf`;
+                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'summarizePdf', noteId: note.id, blockId: block.id });
+                    }
                 }
             }
 
-
-            // --- Task: Generate Note Title ---
-            const hasMeaningfulContent = note.content.some(b => {
-                if (b.type === ContentBlockType.TEXT || b.type === ContentBlockType.HEADER) return (b.content.text || '').length > 10;
-                if (b.type === ContentBlockType.CHECKLIST) return (b.content.items || []).some((i: ChecklistItem) => (i.text || '').length > 0);
-                return !!b.content.url || !!b.content.dbKey;
-            });
-
+            // Task: Generate Title
+            const hasMeaningfulContent = note.content.some(b => (b.content.text || '').length > 10 || b.content.dbKey || b.content.url);
             if (note.title === 'Untitled Note' && hasMeaningfulContent && !note.titleIsGenerating && !note.titleError) {
-                setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: true } : n));
-                try {
-                    const noteContext = getNoteContentAsStringForTitle(note);
-                    if (noteContext.trim().length > 15) {
-                        const newTitle = await generateTitle(noteContext, note.people || []);
-                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id && n.title === 'Untitled Note' ? { ...n, title: newTitle, titleIsGenerating: false } : (n.id === note.id ? { ...n, titleIsGenerating: false } : n)));
-                    } else {
-                         setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false } : n));
-                    }
-                } catch (error) {
-                    console.error('Background title generation failed:', error);
-                    const errorMessage = error instanceof Error ? error.message : "Failed to generate title.";
-                    setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false, titleError: errorMessage } : n));
-                }
-                return; // Process one task at a time
+                const taskId = `${note.id}-note-generateTitle`;
+                if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'generateTitle', noteId: note.id });
             }
 
-            // --- Task: Generate Note Tags ---
-            const noteWithoutTags = notes.find(n => !n.tags && !n.tagsAreGenerating && !n.tagsError && getNoteContentAsStringForTitle(n).trim().length > 20);
-            if (noteWithoutTags) {
-                setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tagsAreGenerating: true } : n));
-                try {
-                    const noteContext = getNoteContentAsStringForTitle(noteWithoutTags);
-                    const newTags = await generateTagsForNote(noteContext);
-                    setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tags: newTags, tagsAreGenerating: false } : n ));
-                } catch (error) {
-                    console.error('Background tag generation failed:', error);
-                    const errorMessage = error instanceof Error ? error.message : "Failed to generate tags.";
-                    setNotes(currentNotes => currentNotes.map(n => n.id === noteWithoutTags.id ? { ...n, tagsAreGenerating: false, tagsError: errorMessage } : n));
-                }
-                return; // Process one task at a time
+            // Task: Generate Tags
+            if (!note.tags && !note.tagsAreGenerating && !note.tagsError && getNoteContentAsStringForTitle(note).trim().length > 20) {
+                const taskId = `${note.id}-note-generateTags`;
+                if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'generateTags', noteId: note.id });
             }
         }
-    };
-    
-    const timeoutId = setTimeout(runNextAITask, 2000);
-    return () => clearTimeout(timeoutId);
 
-  }, [notes, setNotes, masterPeopleList]);
+        if (newTasks.length > 0) {
+            setTaskQueue(currentQueue => [...currentQueue, ...newTasks]);
+        }
+    }, [notes, taskQueue]);
+
+    // Effect 2: Process the task queue
+    useEffect(() => {
+        if (isTaskRunning || taskQueue.length === 0) {
+            return;
+        }
+
+        const runTask = async () => {
+            setIsTaskRunning(true);
+            const task = taskQueue[0];
+            
+            try {
+                // Find the note and block for the task
+                const note = notes.find(n => n.id === task.noteId);
+                if (!note) throw new Error(`Note ${task.noteId} not found for task.`);
+                const block = task.blockId ? note.content.find(b => b.id === task.blockId) : null;
+
+                // --- Execute Task ---
+                switch (task.type) {
+                    case 'recognizeFaces':
+                        if (block && block.content.dbKey) {
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: true, faceRecognitionError: null } } : b) } : n));
+                            const media = await getMedia(block.content.dbKey);
+                            if (media?.url) {
+                                const knownFaces = faceRecognitionService.loadKnownFaces();
+                                if(knownFaces.length > 0){
+                                    const imageElement = await faceRecognitionService.createImageElement(media.url);
+                                    const detectedFaces = await faceRecognitionService.recognizeFaces(imageElement, knownFaces);
+                                    const detectedNames = detectedFaces.filter(f => f.name !== 'Unknown').map(f => f.name);
+                                    setNotes(currentNotes => currentNotes.map(n => {
+                                        if (n.id === note.id) {
+                                            const existingPeople = new Set(n.people || []);
+                                            detectedNames.forEach(name => existingPeople.add(name));
+                                            return { ...n, people: Array.from(existingPeople).sort(), content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: false, faces: detectedFaces } } : b) };
+                                        }
+                                        return n;
+                                    }));
+                                } else {
+                                     setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isRecognizingFaces: false, faces: [] } } : b) } : n));
+                                }
+                            }
+                        }
+                        break;
+
+                    case 'generateImageDescription':
+                    case 'summarizeVideo':
+                    case 'summarizeAudio':
+                    case 'summarizePdf':
+                        if (block && block.content.dbKey) {
+                            const isImage = task.type === 'generateImageDescription';
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, [isImage ? 'isGeneratingDescription' : 'isGeneratingSummary']: true } } : b) } : n));
+                            const media = await getMedia(block.content.dbKey);
+                            if (media?.url) {
+                                let result = '';
+                                const base64 = media.url.split(',')[1];
+                                if (task.type === 'generateImageDescription') {
+                                    const people = (block.content.faces || []).filter(f => f.name !== 'Unknown').map(f => f.name);
+                                    result = await generateImageDescription(base64, media.mimeType, people);
+                                } else if (task.type === 'summarizeVideo') result = await summarizeVideo(base64, media.mimeType);
+                                else if (task.type === 'summarizeAudio') result = await summarizeAudio(base64, media.mimeType);
+                                else if (task.type === 'summarizePdf') result = await summarizePdf(base64, media.mimeType);
+
+                                setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, [isImage ? 'description' : 'summary']: result, [isImage ? 'isGeneratingDescription' : 'isGeneratingSummary']: false } } : b) } : n));
+                            }
+                        }
+                        break;
+
+                    case 'generateTitle':
+                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: true, titleError: null } : n));
+                        const titleContext = getNoteContentAsStringForTitle(note);
+                        if(titleContext.trim().length > 15) {
+                            const newTitle = await generateTitle(titleContext, note.people || []);
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id && n.title === 'Untitled Note' ? { ...n, title: newTitle, titleIsGenerating: false } : (n.id === note.id ? { ...n, titleIsGenerating: false } : n)));
+                        } else {
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false } : n));
+                        }
+                        break;
+                    
+                    case 'generateTags':
+                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, tagsAreGenerating: true, tagsError: null } : n));
+                        const tagsContext = getNoteContentAsStringForTitle(note);
+                        const newTags = await generateTagsForNote(tagsContext);
+                        setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, tags: newTags, tagsAreGenerating: false } : n ));
+                        break;
+                }
+            } catch (error: any) {
+                console.error(`Error processing task ${task.id}:`, error);
+                const errorMessage = error.message || 'An unknown AI error occurred.';
+                setNotes(currentNotes => {
+                    return currentNotes.map(n => {
+                        if (n.id !== task.noteId) return n;
+                        
+                        let updatedNote = { ...n };
+                        if (task.type === 'generateTitle') updatedNote = { ...updatedNote, titleIsGenerating: false, titleError: errorMessage };
+                        if (task.type === 'generateTags') updatedNote = { ...updatedNote, tagsAreGenerating: false, tagsError: errorMessage };
+                        
+                        if (task.blockId) {
+                            updatedNote.content = updatedNote.content.map(b => {
+                                if (b.id !== task.blockId) return b;
+                                let updatedBlock = { ...b };
+                                if (task.type === 'recognizeFaces') updatedBlock.content = { ...b.content, isRecognizingFaces: false, faceRecognitionError: errorMessage };
+                                if (task.type === 'generateImageDescription') updatedBlock.content = { ...b.content, isGeneratingDescription: false, descriptionError: errorMessage };
+                                if (['summarizeVideo', 'summarizeAudio', 'summarizePdf'].includes(task.type)) updatedBlock.content = { ...b.content, isGeneratingSummary: false, summaryError: errorMessage };
+                                return updatedBlock;
+                            });
+                        }
+                        return updatedNote;
+                    });
+                });
+            } finally {
+                setTaskQueue(currentQueue => currentQueue.slice(1));
+                setIsTaskRunning(false);
+            }
+        };
+
+        runTask();
+    }, [taskQueue, isTaskRunning, notes]);
+    // --- End of Background Task Manager ---
 
     useEffect(() => {
         const checkAutoDelete = async () => {
@@ -546,7 +559,16 @@ function App() {
             const hasNoTags = !noteToClose.tags || noteToClose.tags.length === 0;
             const hasNoPeople = !noteToClose.people || noteToClose.people.length === 0;
 
-            if (isTitleEmpty && isContentEmpty && hasNoTags && hasNoPeople) {
+            const isProcessing = noteToClose.titleIsGenerating ||
+                                 noteToClose.tagsAreGenerating ||
+                                 noteToClose.isAiChecklistGenerating ||
+                                 noteToClose.content.some(b => 
+                                     b.content.isGeneratingDescription ||
+                                     b.content.isGeneratingSummary ||
+                                     b.content.isRecognizingFaces
+                                 );
+
+            if (isTitleEmpty && isContentEmpty && hasNoTags && hasNoPeople && !isProcessing) {
                 handleDeleteNote(noteToClose.id);
                 return;
             }
