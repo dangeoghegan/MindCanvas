@@ -549,12 +549,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   const isAiBusy = isAiChecklistLoading || askingImageAIBlockId !== null || note.titleIsGenerating || note.tagsAreGenerating;
 
   return (
-    <div className="flex-1 bg-[#1C1C1C] text-white flex flex-col">
-       <div className="sticky top-0 z-10 bg-[#1C1C1C] py-3 px-6 border-b border-gray-800 flex items-center justify-between">
-            <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-800">
+    <div className="flex-1 bg-background text-foreground flex flex-col">
+       <div className="sticky top-0 z-10 bg-background py-3 px-6 border-b border-border flex items-center justify-between">
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-secondary">
                 <ArrowLeftIcon />
             </button>
-            <button onClick={() => deleteNote(note.id)} className="p-2 rounded-full hover:bg-gray-800 text-gray-400 hover:text-red-400">
+            <button onClick={() => deleteNote(note.id)} className="p-2 rounded-full hover:bg-secondary text-muted-foreground hover:text-destructive">
                 <TrashIcon />
             </button>
         </div>
@@ -566,16 +566,16 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                   value={note.title}
                   onChange={handleTitleChange}
                   placeholder="Untitled Note"
-                  className="text-3xl font-bold bg-transparent focus:outline-none w-full text-white placeholder-gray-600"
+                  className="text-3xl font-bold bg-secondary rounded-lg px-3 py-2 focus:outline-none w-full text-foreground placeholder-muted-foreground"
                 />
                 {note.titleIsGenerating && (
                     <div className="absolute right-2 top-1/2 -translate-y-1/2" title="AI is generating a title for this note">
-                        <SparklesIcon className="w-6 h-6 text-blue-400 animate-pulse" />
+                        <SparklesIcon className="w-6 h-6 text-primary animate-pulse" />
                     </div>
                 )}
                 {note.titleError && (
                     <div className="absolute right-2 top-1/2 -translate-y-1/2" title={`Error: ${note.titleError}`}>
-                        <span className="text-red-500 text-xs font-bold">!</span>
+                        <span className="text-destructive text-xs font-bold">!</span>
                     </div>
                 )}
             </div>
@@ -600,24 +600,24 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
             <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture />
             <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
             
-            <div className="mt-8 pt-6 border-t border-gray-800 space-y-6">
+            <div className="mt-8 pt-6 border-t border-border space-y-6">
                 {(note.tagsAreGenerating || (note.tags && note.tags.length > 0) || note.tagsError) && (
                     <div className="flex items-start gap-3 flex-wrap">
-                        <TagIcon className="w-5 h-5 text-gray-500 flex-shrink-0 mt-1.5" />
+                        <TagIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1.5" />
                         <div className="flex flex-wrap gap-2">
                           {note.tagsAreGenerating && (
-                              <div className="flex items-center gap-2 text-sm text-gray-500 italic">
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground italic">
                                   <SparklesIcon className="w-4 h-4 animate-pulse" />
                                   <span>AI is generating tags...</span>
                               </div>
                           )}
                           {note.tagsError && (
-                              <div className="flex items-center gap-2 text-sm text-red-500 italic" title={note.tagsError}>
+                              <div className="flex items-center gap-2 text-sm text-destructive italic" title={note.tagsError}>
                                   <span>Error generating tags.</span>
                               </div>
                           )}
                           {note.tags && note.tags.map(tag => (
-                              <span key={tag} className="bg-gray-800 text-gray-300 text-xs font-medium px-2.5 py-1 rounded-full">
+                              <span key={tag} className="bg-secondary text-secondary-foreground text-xs font-medium px-2.5 py-1 rounded-full">
                                   #{tag}
                               </span>
                           ))}
@@ -626,13 +626,13 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                 )}
 
                 <div className="flex items-start gap-3 flex-wrap">
-                    <UserIcon className="w-5 h-5 text-gray-500 flex-shrink-0 mt-1.5" />
+                    <UserIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1.5" />
                     <div className="flex-1 relative">
                         <div className="flex flex-wrap gap-2 items-center">
                             {(note.people || []).map(person => (
-                                <span key={person} className="flex items-center gap-1.5 bg-green-800/50 text-green-300 text-xs font-medium pl-2.5 pr-1.5 py-1 rounded-full">
+                                <span key={person} className="flex items-center gap-1.5 bg-success/10 text-secondary-foreground text-xs font-bold pl-2.5 pr-1.5 py-1 rounded-full">
                                     {person}
-                                    <button onClick={() => handleRemovePerson(person)} className="hover:bg-green-700/50 rounded-full p-0.5">
+                                    <button onClick={() => handleRemovePerson(person)} className="hover:bg-success/20 rounded-full p-0.5">
                                         <XMarkIcon className="w-3 h-3" />
                                     </button>
                                 </span>
@@ -647,16 +647,16 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                                     onFocus={() => setShowPersonSuggestions(true)}
                                     onBlur={() => setTimeout(() => setShowPersonSuggestions(false), 200)}
                                     placeholder="Add person..."
-                                    className="bg-transparent text-sm placeholder-gray-500 focus:outline-none py-1"
+                                    className="bg-secondary rounded-md text-sm placeholder-muted-foreground focus:outline-none py-1 px-2"
                                 />
                                 {showPersonSuggestions && filteredPersonSuggestions.length > 0 && (
-                                    <div className="absolute z-10 bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                                    <div className="absolute z-10 bottom-full mb-2 w-full bg-popover border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto">
                                         <ul className="py-1">
                                             {filteredPersonSuggestions.map(suggestion => (
                                                 <li
                                                     key={suggestion}
                                                     onMouseDown={() => handleAddPerson(suggestion)}
-                                                    className="text-gray-300 cursor-pointer select-none relative py-2 px-3 hover:bg-gray-700"
+                                                    className="text-popover-foreground cursor-pointer select-none relative py-2 px-3 hover:bg-accent"
                                                 >
                                                     {suggestion}
                                                 </li>
@@ -669,18 +669,18 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     </div>
                 </div>
                 
-                <div className="flex items-center gap-2 text-gray-400 flex-wrap">
-                   <span className="text-sm font-semibold">ADD BLOCK:</span>
-                   <button onClick={() => addBlock(ContentBlockType.HEADER)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Header</button>
-                   <button onClick={() => addBlock(ContentBlockType.TEXT)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Text</button>
-                   <button onClick={() => addBlock(ContentBlockType.CHECKLIST)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Checklist</button>
-                   <button onClick={() => addBlock(ContentBlockType.EMBED)} className="text-sm px-3 py-1 rounded-md hover:bg-gray-800 hover:text-white">Embed</button>
+                <div className="flex items-center gap-2 text-muted-foreground flex-wrap">
+                   <span className="text-sm font-semibold uppercase tracking-wider">ADD:</span>
+                   <button onClick={() => addBlock(ContentBlockType.HEADER)} className="text-sm px-3 py-1 rounded-md hover:bg-secondary hover:text-secondary-foreground">Header</button>
+                   <button onClick={() => addBlock(ContentBlockType.TEXT)} className="text-sm px-3 py-1 rounded-md hover:bg-secondary hover:text-secondary-foreground">Text</button>
+                   <button onClick={() => addBlock(ContentBlockType.CHECKLIST)} className="text-sm px-3 py-1 rounded-md hover:bg-secondary hover:text-secondary-foreground">Checklist</button>
+                   <button onClick={() => addBlock(ContentBlockType.EMBED)} className="text-sm px-3 py-1 rounded-md hover:bg-secondary hover:text-secondary-foreground">Embed</button>
                 </div>
 
                 <div className="flex items-center gap-4 flex-wrap">
                     <button 
                       onClick={isRecordingForChecklist ? handleStopChecklistRecording : handleStartChecklistRecording} 
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecordingForChecklist ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecordingForChecklist ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90 text-primary-foreground'}`}
                       disabled={isRecording || isDictating || isAiBusy}
                     >
                         {isRecordingForChecklist ? (
@@ -698,7 +698,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     </button>
                     <button 
                         onClick={isRecording ? handleStopRecording : handleStartRecording} 
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecording ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecording ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-secondary hover:bg-accent text-secondary-foreground'}`}
                         disabled={isRecordingForChecklist || isDictating || isAiBusy}
                     >
                         {isRecording ? (
@@ -721,20 +721,20 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     <div className="relative" ref={cameraMenuRef}>
                         <button
                             onClick={() => setIsCameraMenuOpen(prev => !prev)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-secondary hover:bg-accent text-secondary-foreground"
                             disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
                         >
                             <CameraIcon className="w-5 h-5" />
                             <span>Camera</span>
                         </button>
                         {isCameraMenuOpen && (
-                            <div className="absolute bottom-full mb-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-2 animate-fade-in">
+                            <div className="absolute bottom-full mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg py-2 animate-fade-in">
                                 <button
                                     onClick={() => {
                                         photoInputRef.current?.click();
                                         setIsCameraMenuOpen(false);
                                     }}
-                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-popover-foreground hover:bg-accent"
                                 >
                                     <PhotoIcon className="w-5 h-5" />
                                     <span>Take Photo</span>
@@ -744,7 +744,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                                         videoInputRef.current?.click();
                                         setIsCameraMenuOpen(false);
                                     }}
-                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-200 hover:bg-gray-700"
+                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-popover-foreground hover:bg-accent"
                                 >
                                     <VideoCameraIcon className="w-5 h-5" />
                                     <span>Record Video</span>
@@ -754,7 +754,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     </div>
                     <button 
                         onClick={handleGenericFileClick}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-700 hover:bg-gray-600 text-gray-200"
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-secondary hover:bg-accent text-secondary-foreground"
                         disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
                     >
                         <PaperClipIcon className="w-5 h-5" />

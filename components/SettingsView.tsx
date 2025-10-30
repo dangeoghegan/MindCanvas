@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeftIcon, PlusIcon, TrashIcon, PlayIcon, SpeakerWaveIcon, SpinnerIcon, XMarkIcon, UserIcon } from './icons';
-import { AutoDeleteRule, RetentionPeriod, VoiceName, VoiceOption } from '../types';
+import { AutoDeleteRule, RetentionPeriod, VoiceName, VoiceOption, Theme } from '../types';
 import { generateVoicePreview } from '../services/geminiService';
 import { faceRecognitionService, FaceDescriptor } from '../services/faceRecognitionService';
 
@@ -48,6 +48,8 @@ interface SettingsViewProps {
   onRemoveAutoDeleteRule: (tag: string) => void;
   selectedVoice: VoiceName;
   onSetSelectedVoice: (voice: VoiceName) => void;
+  theme: Theme;
+  onSetTheme: (theme: Theme) => void;
 }
 
 const RETENTION_PERIODS: { value: RetentionPeriod; label: string }[] = [
@@ -64,18 +66,17 @@ const VOICE_OPTIONS: VoiceOption[] = [
     { id: 'Zephyr', name: 'Zoe', description: 'Female, professional and clear voice.' },
     { id: 'Puck', name: 'Leo', description: 'Male, energetic and youthful voice.' },
     { id: 'Charon', name: 'James', description: 'Male, deep and authoritative voice.' },
-    { id: 'Fenrir', name: 'Marcus', description: 'Male, calm and steady voice.' },
 ];
 
 const SettingsSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <div className="mb-8">
-        <h2 className="text-xl font-bold text-gray-200 mb-4 pb-2 border-b border-gray-800">{title}</h2>
+        <h2 className="text-xl font-bold text-foreground mb-4 pb-2 border-b border-border">{title}</h2>
         <div className="space-y-4">{children}</div>
     </div>
 );
 
 const SettingsView: React.FC<SettingsViewProps> = ({
-    masterPeopleList, onAddPerson, onRemovePerson, onClose, allTags, autoDeleteRules, onAddAutoDeleteRule, onRemoveAutoDeleteRule, selectedVoice, onSetSelectedVoice
+    masterPeopleList, onAddPerson, onRemovePerson, onClose, allTags, autoDeleteRules, onAddAutoDeleteRule, onRemoveAutoDeleteRule, selectedVoice, onSetSelectedVoice, theme, onSetTheme
 }) => {
     const [newPersonName, setNewPersonName] = useState('');
     const [newRuleTag, setNewRuleTag] = useState('');
@@ -177,9 +178,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
     };
 
     return (
-        <div className="flex-1 bg-[#1C1C1C] text-white flex flex-col">
-            <header className="sticky top-0 z-10 bg-[#1C1C1C] py-3 px-6 border-b border-gray-800 flex items-center">
-                <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-800 mr-4">
+        <div className="flex-1 bg-background text-foreground flex flex-col">
+            <header className="sticky top-0 z-10 bg-background py-3 px-6 border-b border-border flex items-center">
+                <button onClick={onClose} className="p-2 rounded-full hover:bg-secondary mr-4">
                     <ArrowLeftIcon />
                 </button>
                 <h1 className="text-xl font-bold">Settings</h1>
@@ -187,12 +188,37 @@ const SettingsView: React.FC<SettingsViewProps> = ({
 
             <main className="flex-1 overflow-y-auto p-6 md:px-12">
                 <div className="max-w-3xl mx-auto">
+
+                    <SettingsSection title="Appearance">
+                        <div className="flex items-center justify-between p-3 bg-secondary rounded-md">
+                            <span className="font-semibold text-secondary-foreground">Theme</span>
+                            <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+                                <button
+                                    onClick={() => onSetTheme('light')}
+                                    className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                                        theme === 'light' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                                    }`}
+                                >
+                                    Light
+                                </button>
+                                <button
+                                    onClick={() => onSetTheme('dark')}
+                                    className={`px-4 py-1.5 text-sm rounded-md transition-colors ${
+                                        theme === 'dark' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                                    }`}
+                                >
+                                    Dark
+                                </button>
+                            </div>
+                        </div>
+                    </SettingsSection>
+
                     <SettingsSection title="Face Recognition">
-                        <p className="text-gray-400 text-sm">Add photos of people to automatically tag them in your notes. All processing is done on your device for privacy.</p>
+                        <p className="text-muted-foreground text-sm">Add photos of people to automatically tag them in your notes. All processing is done on your device for privacy.</p>
                         
-                        {!modelsLoaded && <div className="text-center text-blue-400 p-4 bg-gray-800 rounded-lg">Loading recognition models...</div>}
+                        {!modelsLoaded && <div className="text-center text-primary p-4 bg-secondary rounded-lg">Loading recognition models...</div>}
                         
-                        <div className="bg-gray-800/50 p-4 rounded-lg">
+                        <div className="bg-secondary p-4 rounded-lg">
                             <div className="flex flex-col md:flex-row items-center gap-4">
                                 <input
                                     type="text"
@@ -200,9 +226,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                                     onChange={(e) => setFaceNameToAdd(e.target.value)}
                                     placeholder="Enter person's name"
                                     disabled={isProcessingFace || !modelsLoaded}
-                                    className="flex-1 w-full bg-gray-900 border border-gray-700 rounded-md p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="flex-1 w-full bg-background rounded-md p-2.5 focus:outline-none"
                                 />
-                                <label className={`w-full md:w-auto flex justify-center items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${!faceNameToAdd.trim() || isProcessingFace || !modelsLoaded ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}>
+                                <label className={`w-full md:w-auto flex justify-center items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${!faceNameToAdd.trim() || isProcessingFace || !modelsLoaded ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-primary hover:bg-primary/90 text-primary-foreground'}`}>
                                     {isProcessingFace ? <SpinnerIcon className="w-5 h-5"/> : <PlusIcon className="w-5 h-5"/>}
                                     <span>{isProcessingFace ? 'Processing...' : 'Add Photo'}</span>
                                     <input
@@ -215,41 +241,47 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                                     />
                                 </label>
                             </div>
-                             {faceError && <p className="text-red-400 text-sm mt-2">{faceError}</p>}
+                             {faceError && <p className="text-destructive text-sm mt-2">{faceError}</p>}
                         </div>
 
                         <div className="space-y-2 mt-4">
                             {knownFaces.length > 0 ? knownFaces.map(person => (
-                                <div key={person.name} className="flex items-center justify-between p-3 bg-gray-800 rounded-md">
+                                <div key={person.name} className="flex items-center justify-between p-3 bg-secondary rounded-md">
                                     <div className="flex items-center gap-3">
-                                        <UserIcon className="w-5 h-5 text-gray-400"/>
-                                        <span className="font-semibold text-gray-200">{person.name}</span>
-                                        <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{person.descriptors.length} photo{person.descriptors.length > 1 ? 's' : ''}</span>
+                                        {person.thumbnail ? (
+                                            <img src={person.thumbnail} alt={person.name} className="w-8 h-8 rounded-full object-cover" />
+                                        ) : (
+                                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                                                <UserIcon className="w-5 h-5 text-muted-foreground"/>
+                                            </div>
+                                        )}
+                                        <span className="font-semibold text-secondary-foreground">{person.name}</span>
+                                        <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{person.descriptors.length} photo{person.descriptors.length > 1 ? 's' : ''}</span>
                                     </div>
-                                    <button onClick={() => handleDeletePersonFaces(person.name)} className="text-gray-500 hover:text-red-400">
+                                    <button onClick={() => handleDeletePersonFaces(person.name)} className="text-muted-foreground hover:text-destructive">
                                         <TrashIcon className="w-4 h-4"/>
                                     </button>
                                 </div>
                             )) : (
-                                <p className="text-sm text-gray-500 text-center py-4">No people have been registered for face recognition yet.</p>
+                                <p className="text-sm text-muted-foreground text-center py-4">No people have been registered for face recognition yet.</p>
                             )}
                         </div>
                     </SettingsSection>
 
                     <SettingsSection title="Voice Settings">
-                        <p className="text-gray-400 text-sm">Choose the voice for conversational chat.</p>
+                        <p className="text-muted-foreground text-sm">Choose the voice for conversational chat.</p>
                         <div className="space-y-3">
                             {VOICE_OPTIONS.map(voice => (
-                                <div key={voice.id} className={`p-4 rounded-lg border-2 transition-colors ${selectedVoice === voice.id ? 'bg-blue-900/50 border-blue-500' : 'bg-gray-800/50 border-gray-700 hover:border-gray-600'}`}>
+                                <div key={voice.id} className={`p-4 rounded-lg border-2 transition-colors ${selectedVoice === voice.id ? 'bg-primary/10 border-primary' : 'bg-secondary border-border hover:border-accent'}`}>
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <label htmlFor={`voice-${voice.id}`} className="font-semibold text-white">{voice.name}</label>
-                                            <p className="text-sm text-gray-400">{voice.description}</p>
+                                            <label htmlFor={`voice-${voice.id}`} className="font-semibold text-foreground">{voice.name}</label>
+                                            <p className="text-sm text-muted-foreground">{voice.description}</p>
                                         </div>
                                         <div className="flex items-center gap-4">
                                             <button 
                                                 onClick={() => handlePreviewVoice(voice.id)} 
-                                                className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-gray-700"
+                                                className="p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent"
                                                 disabled={previewingVoice !== null}
                                                 aria-label={`Preview ${voice.name} voice`}
                                             >
@@ -262,7 +294,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                                                 value={voice.id}
                                                 checked={selectedVoice === voice.id}
                                                 onChange={() => onSetSelectedVoice(voice.id)}
-                                                className="w-5 h-5 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-600 ring-offset-gray-800 focus:ring-2"
+                                                className="w-5 h-5 text-primary bg-background border-border focus:ring-primary ring-offset-secondary focus:ring-2"
                                             />
                                         </div>
                                     </div>
@@ -272,24 +304,24 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                     </SettingsSection>
 
                     <SettingsSection title="People Tags">
-                        <p className="text-gray-400 text-sm">Manage the list of people you can tag in notes manually.</p>
+                        <p className="text-muted-foreground text-sm">Manage the list of people you can tag in notes manually.</p>
                         <form onSubmit={handleAddPerson} className="flex items-center gap-2">
                             <input
                                 type="text"
                                 value={newPersonName}
                                 onChange={(e) => setNewPersonName(e.target.value)}
                                 placeholder="Add a new person..."
-                                className="flex-1 bg-gray-800 border border-gray-700 rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                className="flex-1 bg-secondary rounded-md p-2 focus:outline-none"
                             />
-                            <button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md">
+                            <button type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground p-2 rounded-md">
                                 <PlusIcon />
                             </button>
                         </form>
                         <div className="flex flex-wrap gap-2">
                             {masterPeopleList.map(person => (
-                                <span key={person} className="flex items-center gap-1.5 bg-green-800/50 text-green-300 text-sm font-medium pl-3 pr-1.5 py-1 rounded-full">
+                                <span key={person} className="flex items-center gap-1.5 bg-success/20 text-success-foreground text-sm font-medium pl-3 pr-1.5 py-1 rounded-full">
                                     {person}
-                                    <button onClick={() => onRemovePerson(person)} className="hover:bg-green-700/50 rounded-full p-0.5">
+                                    <button onClick={() => onRemovePerson(person)} className="hover:bg-success/30 rounded-full p-0.5">
                                         <XMarkIcon className="w-3 h-3" />
                                     </button>
                                 </span>
@@ -298,15 +330,15 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                     </SettingsSection>
                     
                     <SettingsSection title="Auto-Delete Rules">
-                        <p className="text-gray-400 text-sm">Automatically delete notes with specific tags after a certain period. This action is irreversible.</p>
-                        <div className="bg-gray-800/50 p-4 rounded-lg flex flex-col md:flex-row items-center gap-4">
+                        <p className="text-muted-foreground text-sm">Automatically delete notes with specific tags after a certain period. This action is irreversible.</p>
+                        <div className="bg-secondary p-4 rounded-lg flex flex-col md:flex-row items-center gap-4">
                             <div className="w-full md:flex-1">
-                                <label htmlFor="tag-select" className="block text-sm font-medium text-gray-300 mb-1">Tag</label>
+                                <label htmlFor="tag-select" className="block text-sm font-medium text-muted-foreground mb-1">Tag</label>
                                 <select
                                     id="tag-select"
                                     value={newRuleTag}
                                     onChange={(e) => setNewRuleTag(e.target.value)}
-                                    className="bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                    className="bg-background text-foreground text-sm rounded-lg focus:outline-none block w-full p-2.5"
                                 >
                                     <option value="">Select a tag</option>
                                     {allTags.filter(t => !autoDeleteRules.some(r => r.tag === t)).map(tag => (
@@ -316,30 +348,30 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                             </div>
 
                             <div className="w-full md:flex-1">
-                                <label htmlFor="period-select" className="block text-sm font-medium text-gray-300 mb-1">Retention Period</label>
+                                <label htmlFor="period-select" className="block text-sm font-medium text-muted-foreground mb-1">Retention Period</label>
                                 <select
                                     id="period-select"
                                     value={newRulePeriod}
                                     onChange={(e) => setNewRulePeriod(e.target.value as RetentionPeriod)}
-                                    className="bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5"
+                                    className="bg-background text-foreground text-sm rounded-lg focus:outline-none block w-full p-2.5"
                                 >
                                     {RETENTION_PERIODS.map(p => (
                                         <option key={p.value} value={p.value}>{p.label}</option>
                                     ))}
                                 </select>
                             </div>
-                            <button onClick={handleAddRule} className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded-md self-end h-[42px]">
+                            <button onClick={handleAddRule} className="bg-primary hover:bg-primary/90 text-primary-foreground p-2 rounded-md self-end h-[42px]">
                                 <PlusIcon />
                             </button>
                         </div>
                         <div className="space-y-2">
                             {autoDeleteRules.map(rule => (
-                                <div key={rule.tag} className="flex items-center justify-between p-3 bg-gray-800 rounded-md">
+                                <div key={rule.tag} className="flex items-center justify-between p-3 bg-secondary rounded-md">
                                     <div>
-                                        <span className="font-semibold text-gray-200">#{rule.tag}</span>
-                                        <span className="text-gray-400 text-sm ml-2">-&gt; Delete after {RETENTION_PERIODS.find(p => p.value === rule.period)?.label}</span>
+                                        <span className="font-semibold text-secondary-foreground">#{rule.tag}</span>
+                                        <span className="text-muted-foreground text-sm ml-2">-&gt; Delete after {RETENTION_PERIODS.find(p => p.value === rule.period)?.label}</span>
                                     </div>
-                                    <button onClick={() => onRemoveAutoDeleteRule(rule.tag)} className="text-gray-500 hover:text-red-400">
+                                    <button onClick={() => onRemoveAutoDeleteRule(rule.tag)} className="text-muted-foreground hover:text-destructive">
                                         <TrashIcon className="w-4 h-4" />
                                     </button>
                                 </div>

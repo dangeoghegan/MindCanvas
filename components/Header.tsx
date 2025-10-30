@@ -9,23 +9,23 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onToggleSidebar, onNewNote, isSidebarVisible }) => {
   return (
-    <header className="bg-gray-900 text-gray-300 p-3 flex items-center justify-between border-b border-gray-800 sticky top-0 z-20">
+    <header className="bg-background text-foreground p-3 flex items-center justify-between border-b border-border sticky top-0 z-20">
       <div className="flex items-center gap-2">
-        <button onClick={onToggleSidebar} className="p-2 rounded-md hover:bg-gray-800">
+        <button onClick={onToggleSidebar} className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <MenuIcon />
         </button>
         <div className="relative flex-1 max-w-xs">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <SearchIcon className="text-gray-500" />
+                <SearchIcon className="text-muted-foreground" />
             </div>
             <input
                 type="text"
                 placeholder="Search"
-                className="bg-gray-800 border border-gray-700 rounded-md py-2 pl-10 pr-4 w-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-200"
+                className="bg-secondary rounded-md py-2 pl-10 pr-4 w-full focus:outline-none text-foreground placeholder:text-muted-foreground transition-colors"
             />
         </div>
       </div>
-      <button onClick={onNewNote} className="p-2 rounded-md hover:bg-gray-800">
+      <button onClick={onNewNote} className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <PlusIcon />
       </button>
     </header>

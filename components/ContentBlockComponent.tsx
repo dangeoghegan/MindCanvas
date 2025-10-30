@@ -48,7 +48,7 @@ const TextBlock: React.FC<{
   
   const className = isHeader
     ? "text-2xl font-bold bg-transparent focus:outline-none w-full resize-none overflow-hidden"
-    : "text-base bg-transparent focus:outline-none w-full resize-none overflow-hidden leading-relaxed";
+    : "text-base bg-secondary rounded-lg p-3 focus:outline-none w-full resize-none overflow-hidden leading-relaxed";
     
   return (
     <textarea
@@ -116,7 +116,7 @@ const ChecklistBlock: React.FC<{
                         type="checkbox"
                         checked={item.checked}
                         onChange={() => handleToggleCheck(item.id)}
-                        className="w-5 h-5 bg-gray-700 border-gray-600 rounded text-blue-500 focus:ring-blue-600"
+                        className="w-5 h-5 bg-secondary border-input rounded text-primary focus:ring-primary"
                     />
                     <input
                         type="text"
@@ -126,7 +126,7 @@ const ChecklistBlock: React.FC<{
                         onKeyDown={(e) => handleKeyDown(e, item.id)}
                         onFocus={(e) => onFocus(e.target, block.id, item.id)}
                         placeholder="To-do item..."
-                        className={`flex-1 bg-transparent focus:outline-none ${item.checked ? 'line-through text-gray-500' : ''}`}
+                        className={`flex-1 bg-transparent focus:outline-none ${item.checked ? 'line-through text-muted-foreground' : ''}`}
                     />
                 </div>
             ))}
@@ -165,38 +165,38 @@ const ImageBlock: React.FC<{
                 {imageUrl ? (
                     <img src={imageUrl} alt={block.content.description || 'User uploaded image'} className="rounded-lg max-w-full h-auto" />
                 ) : (
-                    <div className="h-48 bg-gray-800 rounded-lg flex items-center justify-center">Loading image...</div>
+                    <div className="h-48 bg-secondary rounded-lg flex items-center justify-center">Loading image...</div>
                 )}
             </div>
             <div className="text-center mt-2 space-y-1">
-                {block.content.photoTakenAt && <p className="text-xs text-gray-500">Taken: {new Date(block.content.photoTakenAt).toLocaleString()}</p>}
-                {block.content.description && <p className="text-sm text-gray-400 italic">{block.content.description}</p>}
-                {block.content.isGeneratingDescription && <p className="text-sm text-blue-400 italic">AI is generating a description...</p>}
-                {block.content.descriptionError && <p className="text-sm text-red-400 italic">Description Error: {block.content.descriptionError}</p>}
+                {block.content.photoTakenAt && <p className="text-xs text-muted-foreground">Taken: {new Date(block.content.photoTakenAt).toLocaleString()}</p>}
+                {block.content.description && <p className="text-sm text-muted-foreground italic">{block.content.description}</p>}
+                {block.content.isGeneratingDescription && <p className="text-sm text-primary/80 italic">AI is generating a description...</p>}
+                {block.content.descriptionError && <p className="text-sm text-destructive italic">Description Error: {block.content.descriptionError}</p>}
                 {block.content.isRecognizingFaces && (
-                    <p className="text-sm text-purple-400 italic flex items-center justify-center gap-2">
+                    <p className="text-sm text-primary/80 italic flex items-center justify-center gap-2">
                         <UserIcon className="w-4 h-4 animate-pulse" />
                         <span>Scanning for known faces...</span>
                     </p>
                 )}
-                {block.content.faceRecognitionError && <p className="text-sm text-red-400 italic">Face Recognition Error: {block.content.faceRecognitionError}</p>}
+                {block.content.faceRecognitionError && <p className="text-sm text-destructive italic">Face Recognition Error: {block.content.faceRecognitionError}</p>}
             </div>
             
-            <div className="mt-2 flex items-center gap-2 bg-gray-800/50 rounded-lg p-2">
-                <SparklesIcon className="w-5 h-5 text-blue-400 flex-shrink-0" />
+            <div className="mt-4 bg-secondary rounded-lg p-2 flex items-center gap-2">
+                <SparklesIcon className="w-5 h-5 text-primary flex-shrink-0" />
                 <input 
                     type="text"
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
                     placeholder="Ask about this image..."
-                    className="flex-1 bg-transparent focus:outline-none text-sm"
+                    className="flex-1 bg-transparent focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
                     onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
                     disabled={askingImageAIBlockId === block.id}
                 />
-                <button onClick={handleAsk} disabled={askingImageAIBlockId === block.id || !question.trim()}>
+                <button onClick={handleAsk} disabled={askingImageAIBlockId === block.id || !question.trim()} className="disabled:opacity-50">
                     {askingImageAIBlockId === block.id 
-                        ? <StopIcon className="w-5 h-5 text-gray-500" /> 
-                        : <PaperAirplaneIcon className="w-5 h-5 text-gray-400 hover:text-white" />}
+                        ? <StopIcon className="w-5 h-5 text-muted-foreground" /> 
+                        : <PaperAirplaneIcon className="w-5 h-5 text-muted-foreground hover:text-primary" />}
                 </button>
             </div>
         </div>
@@ -217,15 +217,15 @@ const AudioBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
     }, [block.content.dbKey]);
 
     return (
-        <div className="my-4 p-4 bg-gray-800/50 rounded-lg">
+        <div className="my-4 p-4 bg-secondary rounded-lg">
             {audioUrl ? (
                 <audio controls src={audioUrl} className="w-full"></audio>
             ) : (
-                <div className="h-14 bg-gray-800 rounded-lg flex items-center justify-center text-sm text-gray-400">Loading audio...</div>
+                <div className="h-14 bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Loading audio...</div>
             )}
-            {block.content.summary && <p className="text-sm text-gray-400 italic mt-2">{block.content.summary}</p>}
-            {block.content.isGeneratingSummary && <p className="text-sm text-blue-400 italic mt-2">AI is generating a summary...</p>}
-            {block.content.summaryError && <p className="text-sm text-red-400 italic mt-2">Error: {block.content.summaryError}</p>}
+            {block.content.summary && <p className="text-sm text-muted-foreground italic mt-2">{block.content.summary}</p>}
+            {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic mt-2">AI is generating a summary...</p>}
+            {block.content.summaryError && <p className="text-sm text-destructive italic mt-2">Error: {block.content.summaryError}</p>}
         </div>
     );
 };
@@ -248,11 +248,11 @@ const VideoBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
             {videoUrl ? (
                 <video controls src={videoUrl} className="rounded-lg w-full"></video>
             ) : (
-                <div className="aspect-video bg-gray-800 rounded-lg flex items-center justify-center text-sm text-gray-400">Loading video...</div>
+                <div className="aspect-video bg-secondary rounded-lg flex items-center justify-center text-sm text-muted-foreground">Loading video...</div>
             )}
-            {block.content.summary && <p className="text-sm text-gray-400 italic mt-2">{block.content.summary}</p>}
-            {block.content.isGeneratingSummary && <p className="text-sm text-blue-400 italic mt-2">AI is generating a summary...</p>}
-            {block.content.summaryError && <p className="text-sm text-red-400 italic mt-2">Error: {block.content.summaryError}</p>}
+            {block.content.summary && <p className="text-sm text-muted-foreground italic mt-2">{block.content.summary}</p>}
+            {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic mt-2">AI is generating a summary...</p>}
+            {block.content.summaryError && <p className="text-sm text-destructive italic mt-2">Error: {block.content.summaryError}</p>}
         </div>
     );
 };
@@ -386,46 +386,46 @@ const FileBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
     if (isPdf) {
         return (
             <div className="my-4">
-                <div className="bg-gray-800/50 rounded-lg border border-gray-700">
-                     <div className="p-2 flex justify-between items-center border-b border-gray-700 bg-gray-900/30 rounded-t-lg">
-                        <span className="text-sm font-medium text-gray-300 truncate pl-2">{block.content.name || 'PDF Document'}</span>
+                <div className="bg-secondary rounded-lg border border-border">
+                     <div className="p-2 flex justify-between items-center border-b border-border bg-muted/50 rounded-t-lg">
+                        <span className="text-sm font-medium text-foreground truncate pl-2">{block.content.name || 'PDF Document'}</span>
                         {fileUrl && (
-                            <a href={fileUrl} download={block.content.name} className="text-sm text-blue-400 hover:underline px-2 py-1 rounded-md hover:bg-gray-700">
+                            <a href={fileUrl} download={block.content.name} className="text-sm text-primary hover:underline px-2 py-1 rounded-md hover:bg-accent hover:text-accent-foreground">
                                 Download
                             </a>
                         )}
                     </div>
                     
                     {pdfDoc && numPages > 1 && (
-                        <div className="bg-gray-800 p-2 flex items-center justify-center">
+                        <div className="bg-secondary p-2 flex items-center justify-center">
                              <div className="flex items-center gap-4">
-                                <button onClick={goToPrevPage} disabled={pageNum <= 1} className="p-1 rounded-full disabled:text-gray-600 text-gray-300 hover:bg-gray-700">
+                                <button onClick={goToPrevPage} disabled={pageNum <= 1} className="p-1 rounded-full disabled:text-muted-foreground/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
                                     <ChevronUpIcon className="w-5 h-5 rotate-[-90deg]" />
                                 </button>
-                                <span className="text-sm text-gray-400">Page {pageNum} of {numPages}</span>
-                                <button onClick={goToNextPage} disabled={pageNum >= numPages} className="p-1 rounded-full disabled:text-gray-600 text-gray-300 hover:bg-gray-700">
+                                <span className="text-sm text-muted-foreground">Page {pageNum} of {numPages}</span>
+                                <button onClick={goToNextPage} disabled={pageNum >= numPages} className="p-1 rounded-full disabled:text-muted-foreground/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
                                     <ChevronDownIcon className="w-5 h-5 rotate-[-90deg]" />
                                 </button>
                              </div>
                         </div>
                     )}
 
-                    <div className="w-full bg-gray-900/50 flex justify-center p-4 min-h-[150px] items-center">
-                        {isLoading && <div className="text-gray-400 p-4">Loading PDF...</div>}
-                        {pdfError && <div className="text-red-400 p-4">{pdfError}</div>}
+                    <div className="w-full bg-muted/30 flex justify-center p-4 min-h-[150px] items-center">
+                        {isLoading && <div className="text-muted-foreground p-4">Loading PDF...</div>}
+                        {pdfError && <div className="text-destructive p-4">{pdfError}</div>}
                         <canvas ref={canvasRef} className={`${(isLoading || pdfError) ? 'hidden' : ''}`}></canvas>
                     </div>
                     
                     {(block.content.summary || block.content.isGeneratingSummary || block.content.summaryError) && (
-                        <div className="p-4 border-t border-gray-700">
+                        <div className="p-4 border-t border-border">
                             {block.content.summary && (
                                 <>
-                                    <h4 className="font-semibold text-sm text-gray-200 mb-1">AI Summary</h4>
-                                    <p className="text-sm text-gray-400 italic">{block.content.summary}</p>
+                                    <h4 className="font-semibold text-sm text-foreground mb-1">AI Summary</h4>
+                                    <p className="text-sm text-muted-foreground italic">{block.content.summary}</p>
                                 </>
                             )}
-                            {block.content.isGeneratingSummary && <p className="text-sm text-blue-400 italic">AI is generating a summary...</p>}
-                            {block.content.summaryError && <p className="text-sm text-red-400 italic">Error: {block.content.summaryError}</p>}
+                            {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic">AI is generating a summary...</p>}
+                            {block.content.summaryError && <p className="text-sm text-destructive italic">Error: {block.content.summaryError}</p>}
                         </div>
                     )}
                 </div>
@@ -434,16 +434,16 @@ const FileBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
     }
 
     return (
-        <div className="my-4 p-4 bg-gray-800/50 rounded-lg grid grid-cols-[auto,1fr,auto] items-center gap-x-4 gap-y-2">
-            <PaperClipIcon className="w-5 h-5 text-gray-400"/>
+        <div className="my-4 p-4 bg-secondary rounded-lg grid grid-cols-[auto,1fr,auto] items-center gap-x-4 gap-y-2">
+            <PaperClipIcon className="w-5 h-5 text-muted-foreground"/>
             <span className="truncate text-sm font-medium">{block.content.name || 'Attached File'}</span>
-            {fileUrl && <a href={fileUrl} download={block.content.name} className="text-sm text-blue-400 hover:underline justify-self-end">Download</a>}
+            {fileUrl && <a href={fileUrl} download={block.content.name} className="text-sm text-primary hover:underline justify-self-end">Download</a>}
             
             {(block.content.summary || block.content.isGeneratingSummary || block.content.summaryError) && (
                 <div className="col-span-3">
-                    {block.content.summary && <p className="text-sm text-gray-400 italic mt-2">{block.content.summary}</p>}
-                    {block.content.isGeneratingSummary && <p className="text-sm text-blue-400 italic mt-2">AI is generating a summary...</p>}
-                    {block.content.summaryError && <p className="text-sm text-red-400 italic mt-2">Error: {block.content.summaryError}</p>}
+                    {block.content.summary && <p className="text-sm text-muted-foreground italic mt-2">{block.content.summary}</p>}
+                    {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic mt-2">AI is generating a summary...</p>}
+                    {block.content.summaryError && <p className="text-sm text-destructive italic mt-2">Error: {block.content.summaryError}</p>}
                 </div>
             )}
         </div>
@@ -613,9 +613,9 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
     
     const renderMarkdown = (text: string): { __html: string } => {
       let html = text
-        .replace(/### (.*?)(\n|$)/g, '<h3 class="text-lg font-semibold mt-3 mb-2 text-gray-200">$1</h3>')
-        .replace(/## (.*?)(\n|$)/g, '<h2 class="text-xl font-bold mt-4 mb-2 text-white">$1</h2>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+        .replace(/### (.*?)(\n|$)/g, '<h3 class="text-lg font-semibold mt-3 mb-2 text-foreground">$1</h3>')
+        .replace(/## (.*?)(\n|$)/g, '<h2 class="text-xl font-bold mt-4 mb-2 text-foreground">$1</h2>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
         .replace(/^- (.*?)$/gm, '<li class="ml-4">$1</li>')
         .replace(/\n\n/g, '<br/><br/>');
       html = html.replace(/(<li.*?<\/li>\n?)+/g, '<ul class="list-disc ml-4 my-2">$1</ul>');
@@ -626,22 +626,22 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
     if (isEditing || !block.content.url) {
         return (
             <div className="my-4">
-                <div className="flex items-center gap-2 bg-gray-800/50 rounded-lg p-2">
-                    <LinkIcon className="w-5 h-5 text-gray-400" />
+                <div className="flex items-center gap-2 bg-secondary rounded-lg p-2">
+                    <LinkIcon className="w-5 h-5 text-muted-foreground" />
                     <input
                         type="text"
                         value={urlInput}
                         onChange={(e) => setUrlInput(e.target.value)}
                         placeholder="Paste a link..."
-                        className="flex-1 bg-transparent focus:outline-none text-sm"
+                        className="flex-1 bg-transparent focus:outline-none text-sm placeholder:text-muted-foreground"
                         onKeyDown={(e) => e.key === 'Enter' && handleGeneratePreview()}
                         disabled={isLoading}
                     />
                     <button onClick={handleGeneratePreview} disabled={isLoading || !urlInput.trim()}>
-                        {isLoading ? <SpinnerIcon className="w-5 h-5 text-blue-400" /> : <PaperAirplaneIcon className="w-5 h-5 text-gray-400 hover:text-white" />}
+                        {isLoading ? <SpinnerIcon className="w-5 h-5 text-primary" /> : <PaperAirplaneIcon className="w-5 h-5 text-muted-foreground hover:text-primary" />}
                     </button>
                 </div>
-                {error && <p className="text-sm text-red-400 mt-2 px-2">{error}</p>}
+                {error && <p className="text-sm text-destructive mt-2 px-2">{error}</p>}
             </div>
         );
     }
@@ -673,13 +673,13 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
     };
 
     return (
-        <div className="my-4 bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden relative group/embed">
+        <div className="my-4 bg-secondary rounded-lg border border-border overflow-hidden relative group/embed">
             {/* Preview Section */}
             {isYoutube ? renderYoutubeEmbed() 
               : block.content.embedUrl ? (
                  <div className="aspect-video w-full bg-white"><iframe src={block.content.embedUrl} title={block.content.title} className="w-full h-full" sandbox="allow-scripts allow-same-origin"></iframe></div>
               ) : (
-                <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="block relative group bg-gray-900">
+                <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="block relative group bg-muted">
                     <img src={block.content.thumbnail} alt={block.content.title} className="w-full h-48 object-cover opacity-60 group-hover:opacity-80 transition-opacity" onError={(e) => e.currentTarget.style.display = 'none'} />
                     <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/10">
                         <ExternalLinkIcon className="w-10 h-10 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
@@ -690,19 +690,19 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
             {/* Info & Actions Section */}
             <div className="p-4">
                 <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                    <h3 className="font-semibold text-gray-200 truncate">{block.content.title}</h3>
+                    <h3 className="font-semibold text-foreground truncate">{block.content.title}</h3>
                 </a>
-                {block.content.summary && <p className="text-sm text-gray-400 italic mt-1">{block.content.summary}</p>}
+                {block.content.summary && <p className="text-sm text-muted-foreground italic mt-1">{block.content.summary}</p>}
 
                 {/* Action Buttons */}
                 <div className="flex gap-3 mt-4">
-                    <button onClick={handleEnhancedSummary} disabled={!!block.content.isGeneratingEnhancedSummary} className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all flex items-center justify-center gap-2 disabled:opacity-50 text-sm">
+                    <button onClick={handleEnhancedSummary} disabled={!!block.content.isGeneratingEnhancedSummary} className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-accent hover:text-accent-foreground transition-all flex items-center justify-center gap-2 disabled:opacity-50 text-sm">
                         {block.content.isGeneratingEnhancedSummary ? <SpinnerIcon className="w-4 h-4" /> : <FileTextIcon className="w-4 h-4" />}
                         <span>Enhanced Summary</span>
                         {showEnhancedSummary ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
                     </button>
                     {!isYoutube && (
-                        <button onClick={() => setShowQA(!showQA)} className="flex-1 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-all flex items-center justify-center gap-2 text-sm">
+                        <button onClick={() => setShowQA(!showQA)} className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-accent hover:text-accent-foreground transition-all flex items-center justify-center gap-2 text-sm">
                             <MessageSquareIcon className="w-4 h-4" />
                             <span>Ask a Question</span>
                         </button>
@@ -710,9 +710,9 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
                 </div>
 
                 {/* Enhanced Summary Display */}
-                {block.content.enhancedSummaryError && <p className="text-sm text-red-400 mt-2">{block.content.enhancedSummaryError}</p>}
+                {block.content.enhancedSummaryError && <p className="text-sm text-destructive mt-2">{block.content.enhancedSummaryError}</p>}
                 {showEnhancedSummary && block.content.enhancedSummary && (
-                    <div className="mt-4 p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <div className="mt-4 p-4 bg-background rounded-lg border border-border">
                         <div className="prose prose-sm prose-invert max-w-none" dangerouslySetInnerHTML={renderMarkdown(block.content.enhancedSummary)} />
                     </div>
                 )}
@@ -723,7 +723,7 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
                         {!showVideoQAPrompt && (
                         <button 
                             onClick={() => setShowVideoQAPrompt(true)}
-                            className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+                            className="flex items-center gap-2 text-sm text-primary hover:text-primary/80"
                         >
                             <SparklesIcon className="w-4 h-4" /> Ask question about this video
                         </button>
@@ -737,20 +737,20 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
                             setVideoQuestion('');
                             setShowVideoQAPrompt(false);
                             }}
-                            className="flex items-center gap-2 mt-2 bg-gray-800 p-2 rounded-lg"
+                            className="flex items-center gap-2 mt-2 bg-background p-2 rounded-lg"
                         >
                             <input
                             type="text"
                             value={videoQuestion}
                             onChange={(e) => setVideoQuestion(e.target.value)}
                             placeholder="e.g., What are the main points discussed?"
-                            className="flex-1 bg-transparent focus:outline-none text-sm"
+                            className="flex-1 bg-transparent focus:outline-none text-sm placeholder:text-muted-foreground"
                             autoFocus
                             disabled={isGeneratingVideoAnswer}
                             />
                             <button 
                             type="submit" 
-                            className="text-blue-400 p-1 rounded-md hover:bg-gray-700 disabled:opacity-50"
+                            className="text-primary p-1 rounded-md hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
                             disabled={isGeneratingVideoAnswer || !videoQuestion.trim()}
                             >
                             {isGeneratingVideoAnswer ? (
@@ -764,11 +764,11 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
                     </div>
                 ) : (
                     showQA && (
-                        <div className="mt-4 border-t border-gray-700 pt-4">
+                        <div className="mt-4 border-t border-border pt-4">
                             {chatHistory.length > 0 && (
                                 <div className="mb-4 space-y-3 max-h-60 overflow-y-auto pr-2">
                                     {chatHistory.map((msg, idx) => (
-                                        <div key={idx} className={`p-3 rounded-lg text-sm ${msg.role === 'user' ? 'bg-blue-900/50 ml-8' : 'bg-gray-700/50 mr-8'}`}>
+                                        <div key={idx} className={`p-3 rounded-lg text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground ml-8' : 'bg-muted text-muted-foreground mr-8'}`}>
                                             <p className="font-semibold mb-1">{msg.role === 'user' ? 'You' : 'MindCanvas'}</p>
                                             <p className="whitespace-pre-wrap">{msg.text}</p>
                                         </div>
@@ -777,8 +777,8 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
                             )}
                             <div className="flex gap-2 items-center">
                                 <input type="text" value={currentQuestion} onChange={(e) => setCurrentQuestion(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleAskQuestion()} placeholder="Ask a follow-up..." disabled={isAsking}
-                                    className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm" />
-                                <button onClick={handleAskQuestion} disabled={isAsking || !currentQuestion.trim()} className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-600">
+                                    className="flex-1 px-3 py-2 bg-muted rounded-lg focus:outline-none text-sm" />
+                                <button onClick={handleAskQuestion} disabled={isAsking || !currentQuestion.trim()} className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground">
                                     {isAsking ? <SpinnerIcon className="w-5 h-5" /> : <PaperAirplaneIcon className="w-5 h-5" />}
                                 </button>
                             </div>
@@ -788,7 +788,7 @@ const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock)
             </div>
              <button
                 onClick={handleReset}
-                className="absolute -top-2 -right-2 p-1 bg-gray-800 rounded-full text-gray-500 hover:text-white opacity-0 group-hover/embed:opacity-100 transition-opacity"
+                className="absolute -top-2 -right-2 p-1 bg-card rounded-full text-muted-foreground hover:text-foreground opacity-0 group-hover/embed:opacity-100 transition-opacity"
             >
                 <XMarkIcon className="w-4 h-4" />
             </button>
@@ -831,7 +831,7 @@ const ContentBlockComponent: React.FC<ContentBlockProps> = ({ note, updateNote, 
             </div>
             <button
                 onClick={() => deleteBlock(block.id)}
-                className="p-1.5 rounded-full text-gray-600 hover:bg-gray-800 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity absolute -right-8 top-1/2 -translate-y-1/2"
+                className="p-1.5 rounded-full text-muted-foreground hover:bg-secondary hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity absolute -right-8 top-1/2 -translate-y-1/2"
                 title="Delete block"
             >
                 <TrashIcon className="w-4 h-4" />

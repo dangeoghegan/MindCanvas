@@ -84,7 +84,8 @@ export interface AutoDeleteRule {
   period: RetentionPeriod;
 }
 
-export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore';
+export type Theme = 'light' | 'dark';
 export interface VoiceOption {
   id: VoiceName;
   name: string;

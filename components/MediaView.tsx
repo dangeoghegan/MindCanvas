@@ -45,7 +45,7 @@ const MediaItemThumbnail: React.FC<{ item: MediaItem; onSelectNote: (noteId: str
     }, [block.content.dbKey, block.content.url]);
 
     if (isLoading) {
-        return <div className="relative aspect-square bg-gray-800 rounded-lg animate-pulse"></div>;
+        return <div className="relative aspect-square bg-secondary rounded-lg animate-pulse"></div>;
     }
 
     if (!mediaUrl) {
@@ -55,7 +55,7 @@ const MediaItemThumbnail: React.FC<{ item: MediaItem; onSelectNote: (noteId: str
     return (
         <button
             onClick={() => onSelectNote(noteId)}
-            className="relative aspect-square bg-gray-800 rounded-lg overflow-hidden group focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+            className="relative aspect-square bg-secondary rounded-lg overflow-hidden group focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
             {block.type === ContentBlockType.IMAGE && (
                 <img
@@ -72,9 +72,9 @@ const MediaItemThumbnail: React.FC<{ item: MediaItem; onSelectNote: (noteId: str
                     muted
                 />
             )}
-            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all duration-300" />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300" />
             {block.type === ContentBlockType.VIDEO && (
-                <div className="absolute top-2 right-2 p-1.5 bg-black bg-opacity-50 rounded-full">
+                <div className="absolute top-2 right-2 p-1.5 bg-black/50 rounded-full">
                     <VideoCameraIcon className="w-5 h-5 text-white" />
                 </div>
             )}
@@ -94,9 +94,9 @@ const MediaView: React.FC<MediaViewProps> = ({ notes, onSelectNote }) => {
   );
 
   return (
-    <div className="flex-1 bg-[#1C1C1C] text-white p-6 md:p-12 overflow-y-auto">
+    <div className="flex-1 bg-background text-foreground p-6 md:p-12 overflow-y-auto">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-white mb-8">Media</h1>
+        <h1 className="text-3xl font-bold text-foreground mb-8">Media</h1>
         {mediaItems.length > 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {mediaItems.map((item) => (
@@ -104,9 +104,9 @@ const MediaView: React.FC<MediaViewProps> = ({ notes, onSelectNote }) => {
             ))}
           </div>
         ) : (
-          <div className="text-center text-gray-500 mt-16">
+          <div className="text-center text-muted-foreground mt-16">
             <PhotoIcon className="w-12 h-12 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-200">No Media Found</h2>
+            <h2 className="text-xl font-semibold text-foreground">No Media Found</h2>
             <p className="mt-2">Add images or videos to your notes to see them here.</p>
           </div>
         )}

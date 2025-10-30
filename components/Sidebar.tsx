@@ -1,6 +1,6 @@
 import React from 'react';
 import { Note } from '../types';
-import { ChevronDownIcon, DocumentIcon, PlusIcon, PhotoIcon } from './icons';
+import { PlusIcon } from './icons';
 
 interface SidebarProps {
   notes: Note[];
@@ -12,18 +12,16 @@ interface SidebarProps {
   currentView: 'dashboard' | 'note' | 'chat' | 'library' | 'media';
 }
 
-// The original component implementation was lost due to file corruption.
-// Providing a minimal valid component to fix the syntax error in this file.
 const Sidebar: React.FC<SidebarProps> = ({ notes, activeNoteId, onSelectNote, onNewNote, isVisible }) => {
     if (!isVisible) {
       return null;
     }
 
     return (
-      <aside className="bg-gray-900 text-gray-300 w-64 p-4 flex flex-col">
+      <aside className="bg-background text-foreground w-64 p-4 flex flex-col border-r border-border transition-all duration-300">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold">Notes</h2>
-          <button onClick={onNewNote} className="p-2 rounded-md hover:bg-gray-800">
+          <button onClick={onNewNote} className="p-2 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <PlusIcon />
           </button>
         </div>
@@ -33,8 +31,8 @@ const Sidebar: React.FC<SidebarProps> = ({ notes, activeNoteId, onSelectNote, on
               <li key={note.id}>
                 <button
                   onClick={() => onSelectNote(note.id)}
-                  className={`w-full text-left p-2 rounded-md truncate ${
-                    activeNoteId === note.id ? 'bg-gray-800' : 'hover:bg-gray-800'
+                  className={`w-full text-left p-2 rounded-md truncate transition-colors ${
+                    activeNoteId === note.id ? 'bg-secondary text-foreground' : 'hover:bg-secondary'
                   }`}
                 >
                   {note.title || 'Untitled Note'}

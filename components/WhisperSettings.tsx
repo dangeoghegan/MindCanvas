@@ -7,9 +7,9 @@ import React from 'react';
 // and to fix all compilation errors related to the removed API key logic.
 export const WhisperSettings: React.FC = () => {
   return (
-    <div className="space-y-4 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
-      <h3 className="text-lg font-bold text-gray-200">Dictation Settings</h3>
-      <p className="text-gray-400 text-sm">
+    <div className="space-y-4 p-4 bg-secondary/50 rounded-lg border border-border">
+      <h3 className="text-lg font-bold text-foreground">Dictation Settings</h3>
+      <p className="text-muted-foreground text-sm">
         This application now uses Google's Gemini API for high-accuracy dictation, which is configured centrally.
         There is no longer a need to provide a separate API key here.
       </p>

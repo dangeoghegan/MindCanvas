@@ -229,14 +229,14 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
   }, [notes, selectedVoice, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex flex-col items-center justify-end p-4 view-container-animation">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-end p-4 view-container-animation">
         <div className="w-full max-w-3xl flex-1 flex flex-col justify-end overflow-hidden pb-4">
             <div className="overflow-y-auto">
                 {liveTranscript.length === 0 && conversationState === 'active' && (
-                    <p className="text-center text-4xl font-light text-gray-400 animate-pulse">Listening...</p>
+                    <p className="text-center text-4xl font-light text-muted-foreground animate-pulse">Listening...</p>
                 )}
                 {liveTranscript.map((log) => (
-                    <div key={log.id} className={`text-left text-2xl mb-4 font-light animate-fade-in ${log.role === 'user' ? 'text-white' : 'text-blue-300'}`}>
+                    <div key={log.id} className={`text-left text-2xl mb-4 font-light animate-fade-in ${log.role === 'user' ? 'text-foreground' : 'text-primary'}`}>
                         <span className="font-semibold">{log.role === 'user' ? 'You: ' : 'AI: '}</span>
                         <span>{log.text}</span>
                     </div>
@@ -254,7 +254,7 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
             )}
             <button
                 onClick={stopConversation}
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-red-600 text-white z-10 transform transition-transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-offset-2 focus:ring-offset-black focus:ring-red-500/50"
+                className="w-16 h-16 rounded-full flex items-center justify-center bg-destructive text-destructive-foreground z-10 transform transition-transform hover:scale-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-offset-black focus-visible:ring-destructive/50"
                 aria-label="Stop conversation"
             >
                 <StopIcon className="w-8 h-8" />
@@ -265,8 +265,8 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
         {conversationState === 'connecting' && (
             <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
-                    <SpinnerIcon className="w-12 h-12 text-white mx-auto mb-4" />
-                    <p className="text-xl text-gray-300">Connecting audio...</p>
+                    <SpinnerIcon className="w-12 h-12 text-foreground mx-auto mb-4" />
+                    <p className="text-xl text-muted-foreground">Connecting audio...</p>
                 </div>
             </div>
         )}

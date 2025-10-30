@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName } from './types';
+import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName, Theme } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import NoteEditor from './components/NoteEditor';
 import ReviewView from './components/ReviewView';
@@ -88,10 +88,14 @@ function App() {
   const [masterPeopleList, setMasterPeopleList] = useLocalStorage<string[]>('granula-people', ['Jane Doe', 'John Smith']);
   const [autoDeleteRules, setAutoDeleteRules] = useLocalStorage<AutoDeleteRule[]>('granula-auto-delete-rules', []);
   const [selectedVoice, setSelectedVoice] = useLocalStorage<VoiceName>('granula-selected-voice', 'Kore');
+  const [theme, setTheme] = useLocalStorage<Theme>('granula-theme', 'light');
 
   const [isConversationModeActive, setIsConversationModeActive] = useState(false);
   const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' } | null>(null);
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
   const addPersonToMasterList = (name: string) => {
     const trimmedName = name.trim();
@@ -629,6 +633,8 @@ function App() {
             onRemoveAutoDeleteRule={removeAutoDeleteRule}
             selectedVoice={selectedVoice}
             onSetSelectedVoice={setSelectedVoice}
+            theme={theme}
+            onSetTheme={setTheme}
         />;
       case 'dashboard':
       default:
@@ -637,11 +643,11 @@ function App() {
   };
   
   return (
-    <div className="h-screen w-screen bg-black text-white flex flex-col font-sans">
+    <div className="h-screen w-screen bg-background text-foreground flex flex-col font-sans">
       {/* ⬇️ Top buffer band + subtle bottom hairline */}
       <div className="shrink-0 relative">
         <div className="h-6" /> {/* adjust to change buffer height */}
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-[#E6E6E6]/25" />
+        <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
       </div>
 
       <main className="flex-1 flex flex-col overflow-y-auto pb-24">

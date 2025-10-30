@@ -15,10 +15,10 @@ interface TabButtonProps {
 const TabButton: React.FC<TabButtonProps> = ({ label, period, activePeriod, setPeriod }) => (
     <button
         onClick={() => setPeriod(period)}
-        className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex-1 ${
+        className={`px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
             activePeriod === period
-                ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20'
-                : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                ? 'bg-accent text-accent-foreground shadow-md shadow-accent/20 scale-105'
+                : 'text-muted-foreground hover:bg-card hover:text-secondary-foreground'
         }`}
     >
         {label}
@@ -53,52 +53,52 @@ const formatRichText = (text: string): { __html: string } => {
             if (line.trim() === '') return '';
 
             // Headers
-            if (line.startsWith('## ')) return `<h2 class="text-2xl font-bold mt-10 mb-4 text-white flex items-center gap-3">${line.substring(3)}</h2>`;
-            if (line.startsWith('### ')) return `<div class="p-4 bg-gray-800/50 rounded-lg my-4"><h3 class="text-xl font-semibold mb-2 text-gray-200">${line.substring(4)}</h3>`;
+            if (line.startsWith('## ')) return `<h2 class="text-2xl font-bold mt-10 mb-4 text-foreground flex items-center gap-3">${line.substring(3)}</h2>`;
+            if (line.startsWith('### ')) return `<div class="p-4 bg-secondary/50 rounded-lg my-4"><h3 class="text-xl font-semibold mb-2 text-foreground">${line.substring(4)}</h3>`;
             
             // Blockquote for Reflection
-            if (line.startsWith('> ')) return `<blockquote class="text-3xl font-bold text-center my-8 text-gray-100 not-italic border-none p-0">${line.substring(2)}</blockquote>`;
+            if (line.startsWith('> ')) return `<blockquote class="text-3xl font-bold text-center my-8 text-foreground not-italic border-none p-0">${line.substring(2)}</blockquote>`;
 
             // List items for Learnings & Trends
             if (line.startsWith('- ')) return `<li class="ml-4">${line.substring(2)}</li>`;
             
             // Default to paragraph for moment details etc.
-            return `<p class="my-1 text-gray-300 leading-relaxed">${line}</p>`;
+            return `<p class="my-1 text-muted-foreground leading-relaxed">${line}</p>`;
         })
         .join('')
         // Post-process to wrap consecutive LIs in UL and close moment divs
         .replace(/(<\/h3><p>.*?(?=<h3|<\/div>|$))/gs, (match) => `${match}</div>`)
-        .replace(/(<li>.*<\/li>)/gs, '<ul class="list-disc list-inside space-y-2 my-4 text-gray-300">$1</ul>')
+        .replace(/(<li>.*<\/li>)/gs, '<ul class="list-disc list-inside space-y-2 my-4 text-muted-foreground">$1</ul>')
         // Inline formatting
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-white">$1</strong>')
-        .replace(/_(.*?)_/g, '<em class="italic text-gray-300">$1</em>')
-        .replace(/`(.*?)`/g, '<code class="bg-gray-800 text-gray-200 rounded px-1.5 py-0.5 text-sm font-mono mx-1">$1</code>');
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
+        .replace(/_(.*?)_/g, '<em class="italic text-muted-foreground">$1</em>')
+        .replace(/`(.*?)`/g, '<code class="bg-secondary text-foreground rounded px-1.5 py-0.5 text-sm font-mono mx-1">$1</code>');
 
     return { __html: finalHtml };
 }
 
 const LoadingSkeleton = () => (
-    <div className="relative p-6 rounded-lg bg-gray-900 overflow-hidden space-y-4">
+    <div className="relative p-6 rounded-lg bg-card overflow-hidden space-y-4">
         <div className="space-y-4">
-            <div className="h-6 bg-gray-800 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-800 rounded w-full"></div>
-            <div className="h-4 bg-gray-800 rounded w-full"></div>
-            <div className="h-4 bg-gray-800 rounded w-1/2"></div>
-            <div className="h-4 bg-gray-800 rounded w-5/6 mt-4"></div>
-            <div className="h-4 bg-gray-800 rounded w-full"></div>
+            <div className="h-6 bg-secondary rounded w-3/4"></div>
+            <div className="h-4 bg-secondary rounded w-full"></div>
+            <div className="h-4 bg-secondary rounded w-full"></div>
+            <div className="h-4 bg-secondary rounded w-1/2"></div>
+            <div className="h-4 bg-secondary rounded w-5/6 mt-4"></div>
+            <div className="h-4 bg-secondary rounded w-full"></div>
         </div>
-        <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-gray-700/30 to-transparent -translate-x-full animate-shimmer" />
+        <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-accent/30 to-transparent -translate-x-full animate-shimmer" />
     </div>
 );
 
 const EmptyState: React.FC<{onNewNote: () => void}> = ({ onNewNote }) => (
-    <div className="text-center bg-gray-900 p-8 rounded-lg">
-        <CalendarDaysIcon className="w-16 h-16 mx-auto mb-4 text-gray-600" />
-        <h2 className="text-xl font-bold text-white mb-2">No Notes This Period</h2>
-        <p className="text-gray-400 mb-6">Capture some thoughts to see your AI-powered review here.</p>
+    <div className="text-center bg-card p-8 rounded-lg">
+        <CalendarDaysIcon className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+        <h2 className="text-xl font-bold text-foreground mb-2">No Notes This Period</h2>
+        <p className="text-muted-foreground mb-6">Capture some thoughts to see your AI-powered review here.</p>
         <button
             onClick={onNewNote}
-            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-2 px-4 rounded-lg transition-colors"
         >
             Create a New Note
         </button>
@@ -150,14 +150,14 @@ const ReviewView: React.FC<{ notes: Note[]; onNewNote: () => void; }> = ({ notes
     }, [filteredNotes, period]);
 
     return (
-        <div className="flex-1 bg-[#1C1C1C] text-white p-6 md:p-12 overflow-y-auto">
+        <div className="flex-1 bg-background text-foreground p-6 md:p-12 overflow-y-auto">
             <div className="max-w-4xl mx-auto">
                 <header className="mb-10">
-                    <h1 className="text-3xl font-bold text-white mb-2">Review</h1>
-                    <p className="text-lg text-gray-400">AI-powered highlights from your notes to help you reflect.</p>
+                    <h1 className="text-3xl font-bold text-foreground mb-2">Review</h1>
+                    <p className="text-lg text-muted-foreground">AI-powered highlights from your notes to help you reflect.</p>
                 </header>
                 
-                <div className="flex items-center gap-2 mb-8 bg-gray-900 p-1.5 rounded-xl">
+                <div className="flex items-center gap-2 mb-8 bg-secondary p-1.5 rounded-xl">
                     <TabButton label="Week" period="weekly" activePeriod={period} setPeriod={setPeriod} />
                     <TabButton label="Month" period="monthly" activePeriod={period} setPeriod={setPeriod} />
                     <TabButton label="3-Month" period="quarterly" activePeriod={period} setPeriod={setPeriod} />
@@ -172,7 +172,7 @@ const ReviewView: React.FC<{ notes: Note[]; onNewNote: () => void; }> = ({ notes
                         <EmptyState onNewNote={onNewNote} />
                     ) : (
                         <div 
-                            className="bg-gray-900 p-6 sm:p-8 rounded-lg"
+                            className="bg-card p-6 sm:p-8 rounded-lg shadow-sm"
                             dangerouslySetInnerHTML={formatRichText(summary)}
                         />
                     )}

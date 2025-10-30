@@ -15,9 +15,9 @@ export const DictateButton: React.FC<DictateButtonProps> = ({ isRecording, onCli
 
   const buttonClasses = [
     "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors",
-    isDisabled ? "bg-gray-800 text-gray-500 cursor-not-allowed" : "",
-    !isDisabled && !isRecording ? "bg-gray-700 text-gray-200 hover:bg-gray-600" : "",
-    isRecording ? "bg-red-600 text-white animate-pulse-ring" : ""
+    isDisabled ? "bg-secondary text-muted-foreground cursor-not-allowed" : "",
+    !isDisabled && !isRecording ? "bg-secondary text-secondary-foreground hover:bg-accent" : "",
+    isRecording ? "bg-destructive text-destructive-foreground animate-pulse-ring" : ""
   ].filter(Boolean).join(" ");
 
   return (
