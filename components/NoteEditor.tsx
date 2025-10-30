@@ -280,14 +280,14 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     updateNote({ ...noteRef.current, content: [...noteRef.current.content, errorBlock], isAiChecklistGenerating: false });
                 } finally {
                     setIsAiChecklistLoading(false);
+                    // Cleanup logic moved here to ensure it runs after async operations
+                    stream.getTracks().forEach(track => track.stop());
+                    setIsRecordingForChecklist(false);
+                    if(timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+                    setChecklistRecordingTime(0);
+                    mediaRecorderRef.current = null;
                 }
             };
-            // Cleanup logic now inside onstop handler
-            stream.getTracks().forEach(track => track.stop());
-            setIsRecordingForChecklist(false);
-            if(timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            setChecklistRecordingTime(0);
-            mediaRecorderRef.current = null;
         };
 
         mediaRecorder.start();
@@ -361,7 +361,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
       }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, saveToGallery = false) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -369,31 +369,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        
-        if (saveToGallery && (file.type.startsWith('image/') || file.type.startsWith('video/'))) {
-            try {
-                const url = URL.createObjectURL(file);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const extension = file.name.split('.').pop() || (file.type.startsWith('image/') ? 'jpg' : 'mp4');
-                const prefix = file.type.startsWith('image/') ? 'IMG' : 'VID';
-
-                a.download = `${prefix}_${timestamp}.${extension}`;
-                document.body.appendChild(a);
-                a.click();
-                
-                // Cleanup after download is initiated
-                setTimeout(() => {
-                    window.URL.revokeObjectURL(url);
-                    a.remove();
-                }, 100);
-            } catch (error) {
-                console.error("Failed to save media to gallery:", error);
-            }
-        }
 
         const blockId = self.crypto.randomUUID();
         let dataUrl: string;
@@ -645,8 +620,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
               ))}
             </div>
 
-            <input type="file" ref={photoInputRef} onChange={(e) => handleFileSelect(e, true)} className="hidden" accept="image/*" capture />
-            <input type="file" ref={videoInputRef} onChange={(e) => handleFileSelect(e, true)} className="hidden" accept="video/*" capture />
+            <input type="file" ref={photoInputRef} onChange={handleFileSelect} className="hidden" accept="image/*" capture />
+            <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture />
             <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
             
             <div className="mt-8 pt-6 border-t border-border space-y-6">
