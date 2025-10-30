@@ -173,6 +173,8 @@ const LibraryView: React.FC<LibraryViewProps> = ({ notes, onSelectNote, masterPe
           </div>
         </button>
         <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
             onClick={(e) => {
                 e.stopPropagation();
                 if (window.confirm(`Are you sure you want to permanently delete "${note.title || 'Untitled Note'}"? This action cannot be undone.`)) {

@@ -508,11 +508,6 @@ function App() {
     );
   };
 
-  const handleCloseNote = () => {
-    setActiveNoteId(null);
-    setCurrentView(previousView);
-  };
-
   const handleDeleteNote = async (noteId: string) => {
     const noteToDelete = notes.find(note => note.id === noteId);
     if (noteToDelete) {
@@ -526,12 +521,41 @@ function App() {
             }
         }
     }
-
+    
+    const noteIsActive = activeNoteId === noteId;
+    
     setNotes(currentNotes => currentNotes.filter(note => note.id !== noteId));
-    if (activeNoteId === noteId) {
-        handleCloseNote();
+
+    if (noteIsActive) {
+        setActiveNoteId(null);
+        setCurrentView(previousView);
     }
-  }
+  };
+
+  const handleCloseNote = () => {
+    if (activeNoteId) {
+        const noteToClose = notes.find(n => n.id === activeNoteId);
+
+        if (noteToClose) {
+            const isTitleEmpty = noteToClose.title === 'Untitled Note';
+            const isContentEmpty = 
+                noteToClose.content.length === 0 || 
+                (noteToClose.content.length === 1 &&
+                 noteToClose.content[0].type === ContentBlockType.TEXT &&
+                 !noteToClose.content[0].content.text?.trim());
+            const hasNoTags = !noteToClose.tags || noteToClose.tags.length === 0;
+            const hasNoPeople = !noteToClose.people || noteToClose.people.length === 0;
+
+            if (isTitleEmpty && isContentEmpty && hasNoTags && hasNoPeople) {
+                handleDeleteNote(noteToClose.id);
+                return;
+            }
+        }
+    }
+
+    setActiveNoteId(null);
+    setCurrentView(previousView);
+  };
 
   const handleSelectNote = (id: string) => {
     if (currentView !== 'chat' && currentView !== 'note') {
