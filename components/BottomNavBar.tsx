@@ -15,8 +15,9 @@ const NavItem: React.FC<{
   icon: React.ReactNode;
   isActive: boolean;
   pressEvents?: object;
-}> = ({ label, icon, isActive, pressEvents }) => (
-  <button {...pressEvents} className="flex flex-col items-center justify-center gap-1.5 w-16 h-full transition-colors duration-200 group">
+  className?: string;
+}> = ({ label, icon, isActive, pressEvents, className }) => (
+  <button {...pressEvents} className={`flex flex-col items-center justify-center gap-1.5 w-16 h-full transition-colors duration-200 group ${className || ''}`}>
     <div className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}>
         {icon}
     </div>
@@ -101,7 +102,7 @@ const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentView, onSetView, onN
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm h-16 bg-background/80 backdrop-blur-xl border border-border rounded-2xl flex items-center justify-around pointer-events-auto shadow-2xl shadow-black/30">
           <NavItem label="Library" icon={<BookOpenIcon className="w-6 h-6" />} isActive={currentView === 'library'} pressEvents={{ onClick: () => onSetView('library') }} />
           <NavItem label="Media" icon={<PhotoIcon className="w-6 h-6" />} isActive={currentView === 'media'} pressEvents={{ onClick: () => onSetView('media') }} />
-          <NavItem label="Chat" icon={<ChatIcon className="w-6 h-6" />} isActive={currentView === 'chat'} pressEvents={chatPressEvents} />
+          <NavItem label="Chat" icon={<ChatIcon className="w-6 h-6" />} isActive={currentView === 'chat'} pressEvents={chatPressEvents} className="chat-nav-item" />
           <NavItem label="Review" icon={<CalendarCheckIcon className="w-6 h-6" />} isActive={currentView === 'dashboard'} pressEvents={{ onClick: () => onSetView('dashboard') }} />
           <NavItem label="Settings" icon={<CogIcon className="w-6 h-6" />} isActive={currentView === 'settings'} pressEvents={{ onClick: () => onSetView('settings') }} />
         </div>

@@ -96,7 +96,9 @@ class WhisperTranscriptionService {
     if (this.sessionPromise) {
       try {
         const session = await this.sessionPromise;
-        session.close();
+        if (session) {
+            session.close();
+        }
       } catch (e) {
         console.warn("Error closing session", e);
       } finally {
@@ -106,8 +108,8 @@ class WhisperTranscriptionService {
     this.stream?.getTracks().forEach(track => track.stop());
     this.scriptProcessor?.disconnect();
     this.sourceNode?.disconnect();
-    if (this.inputAudioContext?.state !== 'closed') {
-      this.inputAudioContext?.close().catch(console.error);
+    if (this.inputAudioContext && this.inputAudioContext.state !== 'closed') {
+      this.inputAudioContext.close().catch(console.error);
     }
     this.stream = null;
     this.inputAudioContext = null;

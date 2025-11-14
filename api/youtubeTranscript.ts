@@ -1,112 +1,44 @@
-// /api/youtubeTranscript.ts
-// New implementation based on user's suggestion.
+// This file is intended to be run in a serverless environment (e.g., Vercel, Netlify).
+// It requires the 'youtube-transcript' package to be installed in that environment.
+import { YoutubeTranscript } from 'youtube-transcript';
 
-export const config = { runtime: "edge" };
+// Assuming a Vercel-like request/response API.
+// In a real project, you would import types from '@vercel/node' or a similar package.
+type VercelRequest = { query: { [key: string]: string | string[] } };
+type VercelResponse = {
+  status: (code: number) => { json: (body: any) => void };
+};
 
-function jsonResponse(body: any, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "cache-control": "public, max-age=900", // Caching for 15 mins
-    },
-  });
-}
+export default async function handler(
+  request: VercelRequest,
+  response: VercelResponse,
+) {
+  const { videoId } = request.query;
 
-export default async function handler(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const videoId = (searchParams.get("videoId") || "").trim();
-
-  if (!/^[\w-]{11}$/.test(videoId)) {
-    return jsonResponse({ error: "Invalid or missing videoId" }, 400);
+  if (!videoId || typeof videoId !== 'string') {
+    return response.status(400).json({ error: 'A "videoId" query parameter is required.' });
   }
 
   try {
-    // Method 1: Scrape watch page for caption tracks
-    console.log(`Attempting Method 1 for videoId: ${videoId}`);
-    const url = `https://youtube.com/watch?v=${videoId}`;
-    const response = await fetch(url, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-        }
-    });
-    const html = await response.text();
+    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    if (!transcript || transcript.length === 0) {
+      return response.status(404).json({ error: 'No transcript available for this video.' });
+    }
+    // Concatenate all transcript parts into a single string.
+    const fullTranscript = transcript.map(item => item.text).join(' ');
+    return response.status(200).json({ transcript: fullTranscript });
+  } catch (error: any) {
+    console.error(`Error fetching transcript for videoId ${videoId}:`, error);
     
-    const timedtextRegex = /"captionTracks":(\[.*?\])/s;
-    const match = html.match(timedtextRegex);
-    
-    if (!match) {
-      throw new Error('No captionTracks array found in page HTML');
+    const errorMessage = error.message || String(error);
+
+    if (errorMessage.includes('subtitles are disabled')) {
+      return response.status(404).json({ error: 'Transcripts are disabled for this video.' });
+    }
+    if (errorMessage.includes('No transcripts found')) {
+      return response.status(404).json({ error: 'No transcripts were found for this video. It might be a music video or have no captions.' });
     }
     
-    const tracks = JSON.parse(match[1]);
-    
-    const track = tracks.find((t: any) => t.languageCode === 'en') 
-             || tracks.find((t: any) => t.languageCode.startsWith('en'))
-             || tracks.find((t: any) => t.kind !== 'asr')
-             || tracks[0];
-    
-    if (!track || !track.baseUrl) {
-      throw new Error('No suitable caption track found in captionTracks');
-    }
-    
-    const captionResponse = await fetch(track.baseUrl);
-    const xmlText = await captionResponse.text();
-    
-    const textMatches = xmlText.matchAll(/<text[^>]*>(.*?)<\/text>/g);
-    const transcript = Array.from(textMatches)
-      .map(matchResult => {
-        return matchResult[1]
-          .replace(/&amp;#39;/g, "'")
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/<[^>]+>/g, '');
-      })
-      .join(' ')
-      .trim();
-
-    if (!transcript) {
-        throw new Error("Extracted transcript from XML is empty.");
-    }
-    
-    console.log(`Method 1 successful for videoId: ${videoId}`);
-    return jsonResponse({ videoId, transcript });
-    
-  } catch (error) {
-    console.error(`Method 1 failed for ${videoId}:`, error);
-    
-    // Method 2: Fallback to third-party API
-    try {
-      console.log(`Attempting Method 2 (fallback) for videoId: ${videoId}`);
-      const fallbackResponse = await fetch(
-        `https://youtube-transcript-api.vercel.app/api/transcript?videoId=${videoId}`
-      );
-
-      if (!fallbackResponse.ok) {
-          throw new Error(`Fallback API returned status ${fallbackResponse.status}`);
-      }
-
-      const data = await fallbackResponse.json();
-      
-      if (data.error) throw new Error(data.error);
-      
-      const transcript = data.transcript.map((t: any) => t.text).join(' ').trim();
-      
-      if (!transcript) {
-          throw new Error("Fallback API returned an empty transcript.");
-      }
-
-      console.log(`Method 2 successful for videoId: ${videoId}`);
-      return jsonResponse({ videoId, transcript });
-
-    } catch (fallbackError) {
-      console.error(`Method 2 failed for ${videoId}:`, fallbackError);
-      return jsonResponse({ error: 'Unable to fetch transcript from any source' }, 500);
-    }
+    return response.status(500).json({ error: 'An unexpected error occurred while fetching the transcript.' });
   }
 }

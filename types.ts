@@ -43,12 +43,14 @@ export interface ContentBlock {
     title?: string;
     thumbnail?: string;
     photoTakenAt?: string;
+    location?: { lat: number; lon: number };
     isRecognizingFaces?: boolean;
     faceRecognitionError?: string | null;
     faces?: RecognizedFace[];
     enhancedSummary?: string;
     isGeneratingEnhancedSummary?: boolean;
     enhancedSummaryError?: string | null;
+    isEmbeddable?: boolean;
   };
   createdAt: string;
 }
@@ -102,7 +104,8 @@ export type AITaskType =
   | 'summarizeAudio'
   | 'summarizePdf'
   | 'generateTitle'
-  | 'generateTags';
+  | 'generateTags'
+  | 'summarizeYouTubeEmbed';
 
 export interface AITask {
   id: string; // e.g., `${noteId}-${blockId || 'note'}-${type}`
@@ -110,4 +113,16 @@ export interface AITask {
   noteId: string;
   blockId?: string;
   // This could be expanded with context if needed, but for now, IDs are enough.
+}
+
+export interface UserProfile {
+  name: string;
+}
+
+export type CategoryIcon = 'wifi' | 'lock' | 'credit-card' | 'briefcase' | 'key' | 'default';
+
+export interface DynamicCategory {
+  name: string;
+  icon: CategoryIcon;
+  content: string;
 }

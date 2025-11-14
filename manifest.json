@@ -10,7 +10,7 @@
   "theme_color": "#1C1C1C",
   "dir": "ltr",
   "lang": "en-AU",
-  "orientation": "any",
+  "orientation": "portrait",
   "categories": ["productivity", "utilities", "notes"],
   "icons": [
     { 
@@ -28,15 +28,24 @@
   ],
   "shortcuts": [
     {
-      "name": "New note",
-      "short_name": "New note",
-      "url": "/?action=new-note",
+      "name": "Conversation mode",
+      "short_name": "Conversation",
+      "description": "Start a new conversation",
+      "url": "/?action=conversation",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "Conversation mode",
-      "short_name": "Conversation",
-      "url": "/?action=conversation",
+      "name": "Take photo / video",
+      "short_name": "Photo/Video",
+      "description": "Capture photo or video",
+      "url": "/?action=take-media",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Record Audio",
+      "short_name": "Audio",
+      "description": "Record audio note",
+      "url": "/?action=record-audio",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ],

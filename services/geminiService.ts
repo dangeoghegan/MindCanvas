@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Modality } from '@google/genai';
-import { ChecklistItem, VoiceName, ContentBlock } from '../types';
+import { ChecklistItem, VoiceName, ContentBlock, DynamicCategory, CategoryIcon } from '../types';
 import { fetchTranscript, extractYouTubeId as extractYouTubeVideoId } from './youtubeTranscriptService';
 
 export { extractYouTubeVideoId };
@@ -43,61 +43,51 @@ const generateContentWithRetry = async (params: any) => {
 };
 // --- End of AI Helper ---
 
-
-// Answer questions about a YouTube video using its transcript
-export const answerQuestionAboutYouTubeVideo = async (
-  videoUrl: string,
-  question: string
-): Promise<string> => {
+const parseStructuredResponse = (responseText: string, url: string): { title: string; summary: string } => {
   try {
-    console.log('Fetching transcript for video:', videoUrl);
-    const transcriptPayload = await fetchTranscript(videoUrl);
-    
-    const transcript = transcriptPayload?.transcript || null;
+    const titleMatch = responseText.match(/Title:\s*(.+?)(?:\n|$)/i);
+    const summaryMatch = responseText.match(/Summary:\s*(.+?)(?:\n|$)/i);
 
-    if (!transcript || transcript.trim().length === 0) {
-      const errorMessage = transcriptPayload?.error || 'The video may not have captions available, or the transcript could not be retrieved.';
-      return `Unable to fetch the transcript for this video. Reason: ${errorMessage}`;
+    let title = titleMatch ? titleMatch[1].trim() : '';
+    let summary = summaryMatch ? summaryMatch[1].trim() : '';
+
+    title = title.replace(/[*#\[\]]/g, '');
+    summary = summary.replace(/[*#\[\]]/g, '');
+
+    if (!title) {
+      title = url.includes('youtube') ? 'YouTube Video' : new URL(url).hostname;
+    }
+    if (!summary) {
+      summary = 'Summary not available.';
     }
 
-    console.log('Transcript fetched successfully. Length:', transcript.length);
-
-    const prompt = `You are analyzing a YouTube video transcript to answer a specific question.
-
-Video Transcript:
----
-${transcript.substring(0, 15000)}
----
-
-User Question: "${question}"
-
-Based ONLY on the information in the transcript above, provide a comprehensive and accurate answer. If the answer cannot be found in the transcript, clearly state that.`;
-
-    const response = await generateContentWithRetry({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction: "You are a helpful assistant that answers questions based strictly on the content of a YouTube video transcript. Provide accurate, detailed answers based on what's actually said in the video."
-      }
-    });
-
-    return response.text;
+    return { title, summary };
   } catch (error) {
-    console.error('Error answering question about YouTube video:', error);
-    return 'Sorry, I encountered an error while processing your question about the video.';
+    console.error('Error parsing structured response:', error);
+    return {
+      title: url.includes('youtube') ? 'YouTube Video' : 'Website',
+      summary: 'Summary not available'
+    };
   }
 };
 
+export const getConversationalSystemInstruction = (notesContext: string, userName: string): string => {
+    return `You are Granula, a friendly and helpful conversational AI. You are speaking with ${userName}.
 
-export const getConversationalSystemInstruction = (notesContext: string): string => {
-    return `You are Granula, a friendly and helpful conversational AI. Your task is to answer questions based *only* on the provided context from a user's notes. The user will be speaking to you in English.
-    
-    RULES:
-    - Transcribe the user's speech accurately in English only. Ignore non-speech sounds.
-    - Keep your spoken responses concise and conversational.
-    - If the answer to a question isn't in the provided notes, clearly state that. Do not guess.
-        
-    Context from user's notes:
+    **Core Rules:**
+    1.  **Personalization:** Your user's name is ${userName}. When they use "I", "me", or "my", they are referring to themselves. If they ask who they are, tell them their name is ${userName}. Use their name naturally in conversation to make it feel more personal (e.g., "Certainly, ${userName}, I can help with that.").
+    2.  **Answer Questions:** Base your answers *only* on the provided notes context. If the information isn't there, clearly state that you can't find it in the notes. Do not guess. When you answer a question using information from a specific note, you **must** state the title of the note you are referencing. For example: 'According to your note titled "Project Ideas", the deadline is...'.
+    3.  **Keep it Conversational:** Use a friendly, natural tone. Keep your spoken responses concise.
+    4.  **Transcribe Accurately:** Transcribe the user's speech in English. Ignore non-speech sounds.
+
+    **Note-Taking Logic (Strict Confirmation Flow):**
+    *   If the user says something that sounds like a note to be taken (e.g., an idea, a reminder, a fact, or a command like "Make a note..."), you **MUST NOT** create the note directly.
+    *   Instead, you **MUST** first ask for confirmation. For example: "Would you like me to make a note of that, ${userName}?" or "Should I create a note about the project update?"
+    *   Only if the user responds affirmatively (e.g., "yes", "please do", "sure"), you must then call the \`makeNote\` function, using the information from their *previous* statement as the content for the note.
+    *   If the user denies, simply reply with a brief acknowledgment like "Okay" and wait for their next input.
+    *   After you have successfully called the \`makeNote\` function and received the result, your final spoken response to the user **must be the single word: "Noted."**.
+
+    **Context from ${userName}'s notes:**
     ---
     ${notesContext}
     ---`;
@@ -371,74 +361,134 @@ export const getYouTubeThumbnail = (videoId: string): string => `https://img.you
 
 export const getWebsiteThumbnail = (url: string): string => `https://s.wordpress.com/mshots/v1/${encodeURIComponent(url)}?w=400`;
 
-export const getYouTubeVideoInfo = async (videoId: string): Promise<{ title: string; author: string; }> => {
-  try {
-    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
-    if (!response.ok) throw new Error('Failed to fetch video info');
-    const data = await response.json();
-    return { title: data.title || 'YouTube Video', author: data.author_name || 'Unknown Creator' };
-  } catch (error) {
-    console.error('Error fetching YouTube info:', error);
-    return { title: 'YouTube Video', author: 'Unknown Creator' };
-  }
+export const generateYouTubeSummary = async (url: string): Promise<{ title: string; summary: string; isEmbeddable: boolean; }> => {
+    const videoId = extractYouTubeVideoId(url);
+
+    const fallbackToGoogleSearch = async () => {
+        console.warn(`Falling back to Google Search for URL: ${url}`);
+        const prompt = `Go to this YouTube video page: ${url}\n\nExtract its exact title and write a concise 25-word summary.\n\nYour response MUST be in this exact format, with no other text or markdown formatting:\nTitle: [The exact title of the video]\nSummary: [The 25-word summary]`;
+        try {
+            const response = await generateContentWithRetry({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: { tools: [{ googleSearch: {} }] }
+            });
+            const { title, summary } = parseStructuredResponse(response.text, url);
+            const oembedCheck = videoId ? await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`) : null;
+            return { title, summary, isEmbeddable: !!(oembedCheck && oembedCheck.ok) };
+        } catch (error) {
+            console.error('Error generating YouTube summary with Google Search:', error);
+            throw new Error('Could not generate YouTube summary.');
+        }
+    };
+
+    if (!videoId) {
+        return generateWebsiteSummary(url);
+    }
+
+    try {
+        const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+        
+        if (!oembedRes.ok) {
+            return { title: 'Unsummarized YouTube Video', summary: 'This video may be private, deleted, or unavailable for embedding.', isEmbeddable: false };
+        }
+        
+        const oembedData = await oembedRes.json();
+        const title = oembedData.title || 'YouTube Video';
+        let summary = 'Summary not available.';
+
+        try {
+            summary = await generateYouTubeSummaryFromTranscript(url);
+        } catch (transcriptError) {
+            console.warn('Transcript summary failed, generating summary from title via AI:', transcriptError);
+            const prompt = `Please write a concise, 25-word summary for the YouTube video titled: "${title}".`;
+            const response = await generateContentWithRetry({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+            });
+            summary = response.text.trim().replace(/["']/g, "") || 'Summary not available.';
+        }
+        
+        return { title, summary, isEmbeddable: true };
+
+    } catch (error) {
+        console.warn('Primary YouTube summary method failed, falling back to Google Search:', error);
+        return fallbackToGoogleSearch();
+    }
 };
 
-export const generateYouTubeSummaryFromTitle = async (title: string): Promise<string> => {
-  const prompt = `Based on this YouTube video title: "${title}"\n\nWrite a brief 25-word summary of what this video is likely about. Just provide the summary text, nothing else.`;
-  try {
-    const response = await generateContentWithRetry({ model: 'gemini-2.5-flash', contents: prompt });
+export const generateYouTubeSummaryFromTranscript = async (videoUrl: string): Promise<string> => {
+    const transcriptPayload = await fetchTranscript(videoUrl);
+    const transcript = transcriptPayload?.transcript;
+
+    if (!transcript || transcript.trim().length < 100) {
+      // Throw a specific error instead of falling back. The background task runner will catch this.
+      throw new Error(transcriptPayload?.error || 'No transcript available or it was too short to summarize.');
+    }
+
+    const prompt = `Summarize the following YouTube video transcript in a concise paragraph (around 50-75 words).\n\nTranscript:\n---\n${transcript.substring(0, 20000)}\n---`;
+
+    const response = await generateContentWithRetry({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
     return response.text;
-  } catch (error) {
-    console.error('Error generating summary from title:', error);
-    return 'Summary not available.';
-  }
 };
 
-const parseStructuredResponse = (responseText: string, url: string): { title: string; summary: string } => {
-  try {
-    const titleMatch = responseText.match(/Title:\s*(.+?)(?:\n|$)/i);
-    const summaryMatch = responseText.match(/Summary:\s*(.+?)(?:\n|$)/i);
-    let title = titleMatch ? titleMatch[1].trim() : new URL(url).hostname;
-    let summary = summaryMatch ? summaryMatch[1].trim() : 'Summary not available.';
-    return { title, summary };
-  } catch (error) {
-    return { title: new URL(url).hostname, summary: 'Summary not available.' };
-  }
-};
-
-export const generateWebsiteSummary = async (url: string): Promise<{ title: string; summary: string }> => {
-  const prompt = `Analyze this website: ${url}\n\nPlease provide the following information in this EXACT format:\nTitle: [The website's title or main heading]\nSummary: [A 25-word summary of the website]\n\nDo not include any other text.`;
+export const generateWebsiteSummary = async (url: string): Promise<{ title: string; summary: string; isEmbeddable: boolean; }> => {
+  const prompt = `Go to this webpage: ${url}\n\nExtract its main title and write a concise 25-word summary.\n\nYour response MUST be in this exact format, with no other text or markdown formatting:\nTitle: [The exact title of the page]\nSummary: [The 25-word summary]`;
   try {
     const response = await generateContentWithRetry({ model: 'gemini-2.5-flash', contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-    return parseStructuredResponse(response.text, url);
+    const { title, summary } = parseStructuredResponse(response.text, url);
+    return { title, summary, isEmbeddable: true };
   } catch (error) {
     console.error('Error generating website summary:', error);
     throw new Error('Could not generate website summary.');
   }
 };
 
-export const summarizeGoogleWorkspaceDoc = async (url: string): Promise<{ title: string; summary: string }> => {
+export const summarizeGoogleWorkspaceDoc = async (url: string): Promise<{ title: string; summary: string; isEmbeddable: boolean; }> => {
   const prompt = `Analyze this Google Workspace document: ${url}\n\nPlease provide the following information in this EXACT format:\nTitle: [The document's title or main heading]\nSummary: [A 25-word summary of the document]`;
   try {
     const response = await generateContentWithRetry({ model: 'gemini-2.5-flash', contents: prompt, config: { tools: [{ googleSearch: {} }] } });
-    return parseStructuredResponse(response.text, url);
+    const { title, summary } = parseStructuredResponse(response.text, url);
+    return { title, summary, isEmbeddable: true };
   } catch (error) {
     throw new Error('Could not summarize the document. It may not be public.');
   }
 };
 
-export const generateEnhancedSummary = async (title: string, type: 'youtube' | 'website' | 'doc'): Promise<string> => {
-  const prompt = `Based on this ${type === 'youtube' ? 'YouTube video' : 'website'} title: "${title}"
+export const generateEnhancedSummary = async (url: string, type: 'youtube' | 'website' | 'doc'): Promise<string> => {
+    const prompt = `Search for detailed information about this ${type === 'youtube' ? 'YouTube video' : 'website'}: ${url}
 
-Analyze the title carefully and provide a specific, detailed 75-word summary about what this content likely contains. Be specific about the topic.
+Please provide a detailed 75-word summary using markdown formatting.
 
-Format using markdown with ## headings, ### subheadings, **bold**, and - bullet points.`;
-  try {
-    const response = await generateContentWithRetry({ model: 'gemini-2.5-flash', contents: prompt });
-    return response.text;
-  } catch (error) {
-    throw new Error('Could not generate enhanced summary.');
-  }
+Use this structure:
+## Overview
+[Main topic/purpose]
+
+### Key Points
+- [Point 1]
+- [Point 2]
+- [Point 3]
+
+**Important Details:** [Any critical information]
+
+Do not include any JSON or other formatting. Use only markdown.`;
+
+    try {
+        const response = await generateContentWithRetry({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+            config: {
+                tools: [{ googleSearch: {} }]
+            }
+        });
+        return response.text;
+    } catch (err) {
+        console.error('Enhanced summary generation failed:', err);
+        throw new Error('Could not generate enhanced summary.');
+    }
 };
 
 export const askQuestionAboutEmbeddedContent = async (content: ContentBlock['content'], question: string, chatHistory: { role: 'user' | 'model'; text: string }[]): Promise<string> => {
@@ -480,4 +530,59 @@ export const generateVoicePreview = async (voice: VoiceName): Promise<string> =>
     } catch (error) {
         throw new Error(`Could not generate voice preview for ${voice}.`);
     }
+};
+
+export const generateLinkPreview = async (url: string): Promise<{ title: string; summary: string; isEmbeddable: boolean; }> => {
+  const isGoogleWorkspace = /docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([a-zA-Z0-9-_]+)/.test(url);
+  const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
+
+  if (isGoogleWorkspace) {
+      return await summarizeGoogleWorkspaceDoc(url);
+  } else if (isYoutube) {
+      return await generateYouTubeSummary(url);
+  } else {
+      return await generateWebsiteSummary(url);
+  }
+};
+
+export const generateDynamicCategories = async (notesContext: string): Promise<DynamicCategory[]> => {
+  const systemInstruction = `You are an AI assistant that extracts sensitive or frequently accessed information from a user's notes to create 'Quick Access' categories. Analyze the following notes and identify information like Wi-Fi passwords, tax file numbers, bank details, license keys, contact numbers, etc. For each distinct piece of information found, create a category object. Combine related information (e.g., multiple Wi-Fi networks) into a single category with newline-separated content. Your response MUST be a valid JSON array of objects. Each object must have 'name' (string), 'icon' (string from the list: 'wifi', 'lock', 'credit-card', 'briefcase', 'key', 'default'), and 'content' (string, containing the extracted information). If no relevant information is found, you must return an empty array [].`;
+
+  const prompt = `Note Content:\n---\n${notesContext}\n---`;
+
+  try {
+    const response = await generateContentWithRetry({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              icon: { type: Type.STRING },
+              content: { type: Type.STRING },
+            },
+            required: ['name', 'icon', 'content'],
+          },
+        },
+      },
+    });
+    const jsonStr = response.text.trim();
+    const parsed = JSON.parse(jsonStr) as DynamicCategory[];
+    
+    // Ensure icons are valid
+    const validIcons: CategoryIcon[] = ['wifi', 'lock', 'credit-card', 'briefcase', 'key', 'default'];
+    return parsed.map(item => ({
+        ...item,
+        icon: validIcons.includes(item.icon) ? item.icon : 'default',
+    }));
+
+  } catch (error) {
+    console.error('Error generating dynamic categories:', error);
+    throw new Error('Could not generate quick access categories.');
+  }
 };

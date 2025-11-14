@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, Note, ContentBlockType, ChecklistItem, VoiceName } from '../types';
 import { PaperAirplaneIcon, SparklesIcon, MicrophoneIcon, StopIcon, ConversationIcon, SpinnerIcon } from './icons';
+import { useWhisper } from '../hooks/useWhisper';
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -62,71 +63,32 @@ const formatChatMessage = (text: string): { __html: string } => {
 
 const ChatView: React.FC<ChatViewProps> = ({ messages, onSendMessage, isLoading, onSelectNote, notes, selectedVoice, onStartConversation }) => {
   const [input, setInput] = useState('');
-  const [isDictating, setIsDictating] = useState(false);
-  
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
-  const isDictatingRef = useRef(false);
+
+  const handleTranscription = useCallback((result: { text: string; isFinal: boolean }) => {
+    setInput(result.text);
+  }, []);
+
+  const { isRecording: isDictating, startRecording: startDictation, stopRecording: stopDictation } = useWhisper(handleTranscription);
 
   const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); };
   useEffect(scrollToBottom, [messages, isLoading]);
 
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current && isDictatingRef.current) {
-          isDictatingRef.current = false;
-          recognitionRef.current.stop();
-      }
-    };
-  }, []);
-
-  // Setup Speech Recognition for dictation
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognitionRef.current = recognition;
-    
-    recognition.onresult = (event: any) => {
-        let interim_transcript = '';
-        let final_transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-                final_transcript += event.results[i][0].transcript;
-            } else {
-                interim_transcript += event.results[i][0].transcript;
-            }
-        }
-        setInput(final_transcript + interim_transcript);
-    };
-
-    recognition.onend = () => {
-        if (isDictatingRef.current) {
-            // Restart if it stops prematurely
-            try { recognition.start(); } catch (e) { console.error(e); }
-        }
-    };
-    recognition.onerror = (event: any) => console.error('Speech recognition error:', event.error);
-  }, []);
-  
   const handleToggleDictation = () => {
-      if (isDictating) {
-          isDictatingRef.current = false;
-          recognitionRef.current?.stop();
-      } else {
-          isDictatingRef.current = true;
-          recognitionRef.current?.start();
-      }
-      setIsDictating(!isDictating);
+    if (isDictating) {
+      stopDictation();
+    } else {
+      setInput('');
+      startDictation();
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (input.trim() && !isLoading) {
-      if (isDictating) handleToggleDictation();
+      if (isDictating) {
+        stopDictation();
+      }
       onSendMessage(input);
       setInput('');
     }
@@ -165,7 +127,7 @@ const ChatView: React.FC<ChatViewProps> = ({ messages, onSendMessage, isLoading,
                     type="button"
                     onClick={onStartConversation}
                     disabled={isLoading}
-                    className="w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-offset-background bg-primary border-2 border-border text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary/50"
+                    className="conversation-button w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 transform hover:scale-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-offset-background bg-primary border-2 border-border text-white hover:bg-primary/90 focus-visible:ring-primary/50"
                     aria-label="Start voice conversation"
                     >
                     <ConversationIcon className="w-12 h-12" />

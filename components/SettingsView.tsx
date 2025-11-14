@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeftIcon, PlusIcon, TrashIcon, PlayIcon, SpeakerWaveIcon, SpinnerIcon, XMarkIcon, UserIcon } from './icons';
-import { AutoDeleteRule, RetentionPeriod, VoiceName, VoiceOption, Theme } from '../types';
+// FIX: Imported 'SparklesIcon' to resolve 'Cannot find name' errors.
+import { ArrowLeftIcon, PlusIcon, TrashIcon, PlayIcon, SpeakerWaveIcon, SpinnerIcon, XMarkIcon, UserIcon, WifiIcon, LockClosedIcon, CreditCardIcon, BriefcaseIcon, KeyIcon, ClipboardIcon, SparklesIcon } from './icons';
+import { AutoDeleteRule, RetentionPeriod, VoiceName, VoiceOption, Theme, UserProfile, DynamicCategory, CategoryIcon } from '../types';
 import { generateVoicePreview } from '../services/geminiService';
 import { faceRecognitionService, FaceDescriptor } from '../services/faceRecognitionService';
 
@@ -50,6 +51,11 @@ interface SettingsViewProps {
   onSetSelectedVoice: (voice: VoiceName) => void;
   theme: Theme;
   onSetTheme: (theme: Theme) => void;
+  userProfile: UserProfile;
+  onSetUserProfile: (profile: UserProfile) => void;
+  dynamicCategories: DynamicCategory[];
+  onGenerateCategories: () => void;
+  isGeneratingCategories: boolean;
 }
 
 const RETENTION_PERIODS: { value: RetentionPeriod; label: string }[] = [
@@ -68,15 +74,29 @@ const VOICE_OPTIONS: VoiceOption[] = [
     { id: 'Charon', name: 'James', description: 'Male, deep and authoritative voice.' },
 ];
 
-const SettingsSection: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+const SettingsSection: React.FC<{ title: string; children: React.ReactNode, actions?: React.ReactNode }> = ({ title, children, actions }) => (
     <div className="mb-8">
-        <h2 className="text-xl font-bold text-foreground mb-4 pb-2 border-b border-border">{title}</h2>
+        <div className="flex justify-between items-center mb-4 pb-2 border-b border-border">
+            <h2 className="text-xl font-bold text-foreground">{title}</h2>
+            {actions && <div className="flex items-center gap-2">{actions}</div>}
+        </div>
         <div className="space-y-4">{children}</div>
     </div>
 );
 
+const getCategoryIcon = (iconName: CategoryIcon) => {
+    switch (iconName) {
+        case 'wifi': return <WifiIcon className="w-6 h-6" />;
+        case 'lock': return <LockClosedIcon className="w-6 h-6" />;
+        case 'credit-card': return <CreditCardIcon className="w-6 h-6" />;
+        case 'briefcase': return <BriefcaseIcon className="w-6 h-6" />;
+        case 'key': return <KeyIcon className="w-6 h-6" />;
+        default: return <SparklesIcon className="w-6 h-6" />;
+    }
+};
+
 const SettingsView: React.FC<SettingsViewProps> = ({
-    masterPeopleList, onAddPerson, onRemovePerson, onClose, allTags, autoDeleteRules, onAddAutoDeleteRule, onRemoveAutoDeleteRule, selectedVoice, onSetSelectedVoice, theme, onSetTheme
+    masterPeopleList, onAddPerson, onRemovePerson, onClose, allTags, autoDeleteRules, onAddAutoDeleteRule, onRemoveAutoDeleteRule, selectedVoice, onSetSelectedVoice, theme, onSetTheme, userProfile, onSetUserProfile, dynamicCategories, onGenerateCategories, isGeneratingCategories
 }) => {
     const [newPersonName, setNewPersonName] = useState('');
     const [newRuleTag, setNewRuleTag] = useState('');
@@ -96,6 +116,11 @@ const SettingsView: React.FC<SettingsViewProps> = ({
         faceRecognitionService.loadModels().then(() => setModelsLoaded(true)).catch(console.error);
         setKnownFaces(faceRecognitionService.loadKnownFaces());
     }, []);
+
+    const handleCopy = (text: string) => {
+        navigator.clipboard.writeText(text);
+        // Maybe show a toast notification here in a real app
+    };
 
     const handleAddPerson = (e: React.FormEvent) => {
         e.preventDefault();
@@ -189,6 +214,54 @@ const SettingsView: React.FC<SettingsViewProps> = ({
             <main className="flex-1 overflow-y-auto p-6 md:px-12">
                 <div className="max-w-3xl mx-auto">
 
+                    <SettingsSection title="User Profile">
+                         <div className="flex items-center gap-4 p-3 bg-secondary rounded-md">
+                            <label htmlFor="user-name" className="font-semibold text-secondary-foreground">Name</label>
+                            <input
+                                id="user-name"
+                                type="text"
+                                value={userProfile.name}
+                                onChange={(e) => onSetUserProfile({ ...userProfile, name: e.target.value })}
+                                placeholder="Your Name"
+                                className="flex-1 bg-background rounded-md p-2 focus:outline-none focus:ring-2 focus:ring-ring"
+                            />
+                        </div>
+                    </SettingsSection>
+                    
+                    <SettingsSection 
+                        title="Quick Access"
+                        actions={
+                             <button onClick={onGenerateCategories} disabled={isGeneratingCategories} className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 disabled:opacity-50 disabled:cursor-wait">
+                                {isGeneratingCategories ? <SpinnerIcon className="w-4 h-4" /> : <SparklesIcon className="w-4 h-4" />}
+                                <span>{isGeneratingCategories ? 'Refreshing...' : 'Refresh'}</span>
+                            </button>
+                        }
+                    >
+                        <p className="text-muted-foreground text-sm">Let AI find frequently used information in your notes for easy access. This is processed on-demand and stored on your device.</p>
+                        {dynamicCategories.length > 0 ? (
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {dynamicCategories.map((category, index) => (
+                                    <div key={index} className="bg-secondary p-4 rounded-lg flex flex-col">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-primary">{getCategoryIcon(category.icon)}</span>
+                                                <h4 className="font-bold text-foreground">{category.name}</h4>
+                                            </div>
+                                            <button onClick={() => handleCopy(category.content)} className="p-1.5 rounded-full hover:bg-accent text-muted-foreground hover:text-accent-foreground" aria-label={`Copy ${category.name}`}>
+                                                <ClipboardIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <pre className="whitespace-pre-wrap font-sans text-sm text-muted-foreground bg-background p-3 rounded-md flex-1">{category.content}</pre>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                                {isGeneratingCategories ? 'Searching your notes...' : 'No quick access items found. Tap "Refresh" to search your notes.'}
+                            </p>
+                        )}
+                    </SettingsSection>
+
                     <SettingsSection title="Appearance">
                         <div className="flex items-center justify-between p-3 bg-secondary rounded-md">
                             <span className="font-semibold text-secondary-foreground">Theme</span>
@@ -258,7 +331,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                                         <span className="font-semibold text-secondary-foreground">{person.name}</span>
                                         <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">{person.descriptors.length} photo{person.descriptors.length > 1 ? 's' : ''}</span>
                                     </div>
-                                    <button onClick={() => handleDeletePersonFaces(person.name)} className="text-muted-foreground hover:text-destructive">
+                                    <button onClick={() => handleDeletePersonFaces(person.name)} className="text-muted-foreground hover:text-destructive" aria-label={`Delete face data for ${person.name}`}>
                                         <TrashIcon className="w-4 h-4"/>
                                     </button>
                                 </div>
@@ -304,7 +377,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                     </SettingsSection>
 
                     <SettingsSection title="People Tags">
-                        <p className="text-muted-foreground text-sm">Manage the list of people you can tag in notes manually.</p>
+                        <p className="text-muted-foreground text-sm">Manage the list of people you can tag in notes manually. Deleting a person here will also remove their face recognition data.</p>
                         <form onSubmit={handleAddPerson} className="flex items-center gap-2">
                             <input
                                 type="text"
@@ -321,7 +394,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                             {masterPeopleList.map(person => (
                                 <span key={person} className="flex items-center gap-1.5 bg-success/20 text-success-foreground text-sm font-medium pl-3 pr-1.5 py-1 rounded-full">
                                     {person}
-                                    <button onClick={() => onRemovePerson(person)} className="hover:bg-success/30 rounded-full p-0.5">
+                                    <button onClick={() => onRemovePerson(person)} className="hover:bg-success/30 rounded-full p-0.5" aria-label={`Delete ${person}`}>
                                         <XMarkIcon className="w-3 h-3" />
                                     </button>
                                 </span>
@@ -371,7 +444,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({
                                         <span className="font-semibold text-secondary-foreground">#{rule.tag}</span>
                                         <span className="text-muted-foreground text-sm ml-2">-&gt; Delete after {RETENTION_PERIODS.find(p => p.value === rule.period)?.label}</span>
                                     </div>
-                                    <button onClick={() => onRemoveAutoDeleteRule(rule.tag)} className="text-muted-foreground hover:text-destructive">
+                                    <button onClick={() => onRemoveAutoDeleteRule(rule.tag)} className="text-muted-foreground hover:text-destructive" aria-label={`Delete rule for tag ${rule.tag}`}>
                                         <TrashIcon className="w-4 h-4" />
                                     </button>
                                 </div>

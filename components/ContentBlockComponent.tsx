@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useRef, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Note, ContentBlock, ContentBlockType, ChecklistItem } from '../types';
-import { TrashIcon, SparklesIcon, PaperAirplaneIcon, StopIcon, PaperClipIcon, LinkIcon, ChevronDownIcon, ChevronUpIcon, UserIcon, FileTextIcon, MessageSquareIcon, ExternalLinkIcon, SpinnerIcon, XMarkIcon } from './icons';
 import { getMedia } from '../services/dbService';
-import { generateWebsiteSummary, summarizeGoogleWorkspaceDoc, extractYouTubeVideoId, getYouTubeThumbnail, getWebsiteThumbnail, generateEnhancedSummary, askQuestionAboutEmbeddedContent, getYouTubeVideoInfo, generateYouTubeSummaryFromTitle, answerQuestionAboutYouTubeVideo } from '../services/geminiService';
+import { generateLinkPreview, extractYouTubeVideoId, getYouTubeThumbnail, getWebsiteThumbnail } from '../services/geminiService';
+import {
+  TrashIcon, SparklesIcon, PaperAirplaneIcon, LinkIcon, FileTextIcon,
+  ExternalLinkIcon, SpinnerIcon, PhotoIcon, VideoCameraIcon,
+  PlayIcon, SpeakerWaveIcon, XMarkIcon, UserIcon, CalendarDaysIcon, TranscriptIcon, MessageSquareIcon, MapPinIcon
+} from './icons';
+
 
 interface ContentBlockProps {
   block: ContentBlock;
@@ -13,830 +18,332 @@ interface ContentBlockProps {
   onAskAIAboutImage: (blockId: string, question: string) => void;
   askingImageAIBlockId: string | null;
   onInputFocus: (element: HTMLTextAreaElement | HTMLInputElement, blockId: string, itemId?: string) => void;
+  onViewImage: (url: string, alt: string) => void;
 }
 
-const TextBlock: React.FC<{
-  block: ContentBlock;
-  updateBlock: (b: ContentBlock) => void;
-  isHeader: boolean;
-  onFocus: (element: HTMLTextAreaElement, blockId: string) => void;
-}> = ({ block, updateBlock, isHeader, onFocus }) => {
+const AutoResizingTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = (props) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [text, setText] = useState(block.content.text || '');
-
-  useEffect(() => {
-    // This effect synchronizes the local state with the block prop.
-    // This is crucial for updates that happen outside this component,
-    // such as real-time dictation, where the parent component updates the block content.
-    if (block.content.text !== text) {
-      setText(block.content.text || '');
-    }
-  }, [block.content.text]);
 
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
-  }, [text]);
+  }, [props.value]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
-    // Live update for smoother experience
-    updateBlock({ ...block, content: { text: e.target.value } });
-  };
+  return <textarea ref={textareaRef} {...props} />;
+};
+
+const ContentBlockComponent: React.FC<ContentBlockProps> = ({
+  block, note, updateNote, updateBlock, deleteBlock, onAskAIAboutImage, askingImageAIBlockId, onInputFocus, onViewImage
+}) => {
+
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [embedUrlInput, setEmbedUrlInput] = useState('');
   
-  const className = isHeader
-    ? "text-2xl font-bold bg-transparent focus:outline-none w-full resize-none overflow-hidden"
-    : "text-base bg-secondary rounded-lg p-3 focus:outline-none w-full resize-none overflow-hidden leading-relaxed";
-    
-  return (
-    <textarea
-      ref={textareaRef}
-      value={text}
-      onChange={handleChange}
-      onFocus={(e) => onFocus(e.target, block.id)}
-      placeholder={isHeader ? "Header" : "Type something..."}
-      className={className}
-      rows={1}
-    />
-  );
-};
+  const mediaTypes = [ContentBlockType.IMAGE, ContentBlockType.VIDEO, ContentBlockType.AUDIO, ContentBlockType.FILE];
 
-
-const ChecklistBlock: React.FC<{
-    block: ContentBlock;
-    updateBlock: (b: ContentBlock) => void;
-    onFocus: (element: HTMLInputElement, blockId: string, itemId: string) => void;
-}> = ({ block, updateBlock, onFocus }) => {
-    const items = block.content.items || [];
-
-    const handleUpdateItem = (itemId: string, newText: string) => {
-        const newItems = items.map((item: ChecklistItem) =>
-            item.id === itemId ? { ...item, text: newText } : item
-        );
-        updateBlock({ ...block, content: { ...block.content, items: newItems } });
-    };
-
-    const handleToggleCheck = (itemId: string) => {
-        const newItems = items.map((item: ChecklistItem) =>
-            item.id === itemId ? { ...item, checked: !item.checked } : item
-        );
-        updateBlock({ ...block, content: { ...block.content, items: newItems } });
-    };
-
-    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, itemId: string) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const currentIndex = items.findIndex((item: ChecklistItem) => item.id === itemId);
-            const newItem: ChecklistItem = { id: self.crypto.randomUUID(), text: '', checked: false };
-            const newItems = [...items];
-            newItems.splice(currentIndex + 1, 0, newItem);
-            updateBlock({ ...block, content: { ...block.content, items: newItems } });
-            
-            setTimeout(() => {
-                const nextInput = document.querySelector(`[data-item-id="${newItem.id}"]`) as HTMLInputElement;
-                nextInput?.focus();
-            }, 0);
-        } else if (e.key === 'Backspace' && (e.target as HTMLInputElement).value === '') {
-            e.preventDefault();
-            const newItems = items.filter((item: ChecklistItem) => item.id !== itemId);
-            if (newItems.length === 0) {
-                 newItems.push({ id: self.crypto.randomUUID(), text: '', checked: false });
-            }
-            updateBlock({ ...block, content: { ...block.content, items: newItems } });
-        }
-    };
-
-    return (
-        <div className="space-y-2">
-            {items.map((item: ChecklistItem) => (
-                <div key={item.id} className="flex items-center gap-3">
-                    <input
-                        type="checkbox"
-                        checked={item.checked}
-                        onChange={() => handleToggleCheck(item.id)}
-                        className="w-5 h-5 bg-secondary border-input rounded text-primary focus:ring-primary"
-                    />
-                    <input
-                        type="text"
-                        data-item-id={item.id}
-                        value={item.text}
-                        onChange={(e) => handleUpdateItem(item.id, e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(e, item.id)}
-                        onFocus={(e) => onFocus(e.target, block.id, item.id)}
-                        placeholder="To-do item..."
-                        className={`flex-1 bg-transparent focus:outline-none ${item.checked ? 'line-through text-muted-foreground' : ''}`}
-                    />
-                </div>
-            ))}
-        </div>
-    );
-};
-
-const ImageBlock: React.FC<{
-    block: ContentBlock;
-    onAskAIAboutImage: (blockId: string, question: string) => void;
-    askingImageAIBlockId: string | null;
-}> = ({ block, onAskAIAboutImage, askingImageAIBlockId }) => {
-    const [imageUrl, setImageUrl] = useState<string | null>(null);
-    const [question, setQuestion] = useState('');
-
-    useEffect(() => {
-        const fetchImage = async () => {
-            if (block.content.dbKey) {
-                const media = await getMedia(block.content.dbKey);
-                if (media) setImageUrl(media.url);
-            }
-        };
-        fetchImage();
-    }, [block.content.dbKey]);
-
-    const handleAsk = () => {
-        if (question.trim()) {
-            onAskAIAboutImage(block.id, question);
-            setQuestion('');
-        }
-    };
-
-    return (
-        <div className="my-4">
-            <div className="relative mx-auto max-w-full w-fit">
-                {imageUrl ? (
-                    <img src={imageUrl} alt={block.content.description || 'User uploaded image'} className="rounded-lg max-w-full h-auto" />
-                ) : (
-                    <div className="h-48 bg-secondary rounded-lg flex items-center justify-center">Loading image...</div>
-                )}
-            </div>
-            <div className="text-center mt-2 space-y-1">
-                {block.content.photoTakenAt && <p className="text-xs text-muted-foreground">Taken: {new Date(block.content.photoTakenAt).toLocaleString()}</p>}
-                {block.content.description && <p className="text-sm text-muted-foreground italic">{block.content.description}</p>}
-                {block.content.isGeneratingDescription && <p className="text-sm text-primary/80 italic">AI is generating a description...</p>}
-                {block.content.descriptionError && <p className="text-sm text-destructive italic">Description Error: {block.content.descriptionError}</p>}
-                {block.content.isRecognizingFaces && (
-                    <p className="text-sm text-primary/80 italic flex items-center justify-center gap-2">
-                        <UserIcon className="w-4 h-4 animate-pulse" />
-                        <span>Scanning for known faces...</span>
-                    </p>
-                )}
-                {block.content.faceRecognitionError && <p className="text-sm text-destructive italic">Face Recognition Error: {block.content.faceRecognitionError}</p>}
-            </div>
-            
-            <div className="mt-4 bg-secondary rounded-lg p-2 flex items-center gap-2">
-                <SparklesIcon className="w-5 h-5 text-primary flex-shrink-0" />
-                <input 
-                    type="text"
-                    value={question}
-                    onChange={(e) => setQuestion(e.target.value)}
-                    placeholder="Ask about this image..."
-                    className="flex-1 bg-transparent focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
-                    onKeyDown={(e) => e.key === 'Enter' && handleAsk()}
-                    disabled={askingImageAIBlockId === block.id}
-                />
-                <button onClick={handleAsk} disabled={askingImageAIBlockId === block.id || !question.trim()} className="disabled:opacity-50">
-                    {askingImageAIBlockId === block.id 
-                        ? <StopIcon className="w-5 h-5 text-muted-foreground" /> 
-                        : <PaperAirplaneIcon className="w-5 h-5 text-muted-foreground hover:text-primary" />}
-                </button>
-            </div>
-        </div>
-    );
-};
-
-const AudioBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
-
-    useEffect(() => {
-        const fetchAudio = async () => {
-            if (block.content.dbKey) {
-                const media = await getMedia(block.content.dbKey);
-                if (media) setAudioUrl(media.url);
-            }
-        };
-        fetchAudio();
-    }, [block.content.dbKey]);
-
-    return (
-        <div className="my-4 p-4 bg-secondary rounded-lg">
-            {audioUrl ? (
-                <audio controls src={audioUrl} className="w-full"></audio>
-            ) : (
-                <div className="h-14 bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Loading audio...</div>
-            )}
-            {block.content.summary && <p className="text-sm text-muted-foreground italic mt-2">{block.content.summary}</p>}
-            {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic mt-2">AI is generating a summary...</p>}
-            {block.content.summaryError && <p className="text-sm text-destructive italic mt-2">Error: {block.content.summaryError}</p>}
-        </div>
-    );
-};
-
-const VideoBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
-    const [videoUrl, setVideoUrl] = useState<string | null>(null);
-
-    useEffect(() => {
-        const fetchVideo = async () => {
-            if (block.content.dbKey) {
-                const media = await getMedia(block.content.dbKey);
-                if (media) setVideoUrl(media.url);
-            }
-        };
-        fetchVideo();
-    }, [block.content.dbKey]);
-
-    return (
-        <div className="my-4">
-            {videoUrl ? (
-                <video controls src={videoUrl} className="rounded-lg w-full"></video>
-            ) : (
-                <div className="aspect-video bg-secondary rounded-lg flex items-center justify-center text-sm text-muted-foreground">Loading video...</div>
-            )}
-            {block.content.summary && <p className="text-sm text-muted-foreground italic mt-2">{block.content.summary}</p>}
-            {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic mt-2">AI is generating a summary...</p>}
-            {block.content.summaryError && <p className="text-sm text-destructive italic mt-2">Error: {block.content.summaryError}</p>}
-        </div>
-    );
-};
-
-const FileBlock: React.FC<{ block: ContentBlock }> = ({ block }) => {
-    const [fileUrl, setFileUrl] = useState<string | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [pdfDoc, setPdfDoc] = useState<any | null>(null);
-    const [pageNum, setPageNum] = useState(1);
-    const [numPages, setNumPages] = useState(0);
-    const [isLoading, setIsLoading] = useState(true);
-    const [pdfError, setPdfError] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (block.content.dbKey) {
-            getMedia(block.content.dbKey).then(media => media && setFileUrl(media.url));
-        }
-    }, [block.content.dbKey]);
-    
-    const isPdf = block.content.mimeType === 'application/pdf';
-
-    useEffect(() => {
-        if (!fileUrl || !isPdf) {
-            if (isPdf) setIsLoading(true); else setIsLoading(false);
-            return;
-        }
-
-        let isCancelled = false;
-        let attempt = 0;
-        const maxAttempts = 50; // Wait up to 10 seconds
-
-        const loadAndRenderPdf = async () => {
-            if (isCancelled) return;
-
-            const pdfjs = (window as any).pdfjsLib;
-
-            if (pdfjs) {
-                // Library is loaded, proceed.
-                setPdfError(null);
-                try {
-                    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-                        pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
-                    }
-                    
-                    const base64 = fileUrl.substring(fileUrl.indexOf(',') + 1);
-                    const pdfData = atob(base64);
-                    const uint8Array = new Uint8Array(pdfData.length);
-                    for (let i = 0; i < pdfData.length; i++) {
-                        uint8Array[i] = pdfData.charCodeAt(i);
-                    }
-
-                    const doc = await pdfjs.getDocument({ data: uint8Array, worker: false }).promise;
-                    if (isCancelled) return;
-                    
-                    setPdfDoc(doc);
-                    setNumPages(doc.numPages);
-                    // The rendering will be handled by the next useEffect, so we don't set loading to false here.
-                } catch (error) {
-                    console.error("Failed to load PDF:", error);
-                    if (!isCancelled) {
-                        setPdfError("Could not display PDF. The file might be corrupted or unsupported.");
-                        setIsLoading(false);
-                    }
-                }
-            } else {
-                // Library not yet loaded, retry.
-                attempt++;
-                if (attempt < maxAttempts) {
-                    setTimeout(loadAndRenderPdf, 200);
-                } else {
-                    if (!isCancelled) {
-                        setPdfError("PDF viewer library failed to load. Please check your internet connection and refresh.");
-                        setIsLoading(false);
-                    }
-                }
-            }
-        };
-
-        setIsLoading(true);
-        setPdfDoc(null);
-        setPageNum(1);
-        loadAndRenderPdf();
-
-        return () => {
-            isCancelled = true;
-        };
-    }, [fileUrl, isPdf]);
-
-
-    useEffect(() => {
-        if (!pdfDoc || !canvasRef.current) return;
-        
-        let isCancelled = false;
-        setIsLoading(true); 
-        
-        const renderPage = async (num: number) => {
-            try {
-                const page = await pdfDoc.getPage(num);
-                if (isCancelled) return;
-
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-
-                const ctx = canvas.getContext('2d');
-                if (!ctx) return;
-                
-                const viewport = page.getViewport({ scale: 1.5 });
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-
-                const renderContext = {
-                    canvasContext: ctx,
-                    viewport: viewport,
-                };
-                await page.render(renderContext).promise;
-            } catch (error) {
-                console.error("Failed to render page", error);
-                if (!isCancelled) setPdfError("Could not render this page.");
-            } finally {
-                 if (!isCancelled) setIsLoading(false);
-            }
-        };
-        
-        renderPage(pageNum);
-        return () => { isCancelled = true; };
-    }, [pdfDoc, pageNum]);
-
-    const goToPrevPage = () => setPageNum(p => Math.max(1, p - 1));
-    const goToNextPage = () => setPageNum(p => Math.min(numPages, p + 1));
-
-    if (isPdf) {
-        return (
-            <div className="my-4">
-                <div className="bg-secondary rounded-lg border border-border">
-                     <div className="p-2 flex justify-between items-center border-b border-border bg-muted/50 rounded-t-lg">
-                        <span className="text-sm font-medium text-foreground truncate pl-2">{block.content.name || 'PDF Document'}</span>
-                        {fileUrl && (
-                            <a href={fileUrl} download={block.content.name} className="text-sm text-primary hover:underline px-2 py-1 rounded-md hover:bg-accent hover:text-accent-foreground">
-                                Download
-                            </a>
-                        )}
-                    </div>
-                    
-                    {pdfDoc && numPages > 1 && (
-                        <div className="bg-secondary p-2 flex items-center justify-center">
-                             <div className="flex items-center gap-4">
-                                <button onClick={goToPrevPage} disabled={pageNum <= 1} className="p-1 rounded-full disabled:text-muted-foreground/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
-                                    <ChevronUpIcon className="w-5 h-5 rotate-[-90deg]" />
-                                </button>
-                                <span className="text-sm text-muted-foreground">Page {pageNum} of {numPages}</span>
-                                <button onClick={goToNextPage} disabled={pageNum >= numPages} className="p-1 rounded-full disabled:text-muted-foreground/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
-                                    <ChevronDownIcon className="w-5 h-5 rotate-[-90deg]" />
-                                </button>
-                             </div>
-                        </div>
-                    )}
-
-                    <div className="w-full bg-muted/30 flex justify-center p-4 min-h-[150px] items-center">
-                        {isLoading && <div className="text-muted-foreground p-4">Loading PDF...</div>}
-                        {pdfError && <div className="text-destructive p-4">{pdfError}</div>}
-                        <canvas ref={canvasRef} className={`${(isLoading || pdfError) ? 'hidden' : ''}`}></canvas>
-                    </div>
-                    
-                    {(block.content.summary || block.content.isGeneratingSummary || block.content.summaryError) && (
-                        <div className="p-4 border-t border-border">
-                            {block.content.summary && (
-                                <>
-                                    <h4 className="font-semibold text-sm text-foreground mb-1">AI Summary</h4>
-                                    <p className="text-sm text-muted-foreground italic">{block.content.summary}</p>
-                                </>
-                            )}
-                            {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic">AI is generating a summary...</p>}
-                            {block.content.summaryError && <p className="text-sm text-destructive italic">Error: {block.content.summaryError}</p>}
-                        </div>
-                    )}
-                </div>
-            </div>
-        );
+  useEffect(() => {
+    if (mediaTypes.includes(block.type) && block.content.dbKey) {
+      setIsLoadingMedia(true);
+      getMedia(block.content.dbKey)
+        .then(media => { if (media) setMediaUrl(media.url); })
+        .catch(console.error)
+        .finally(() => setIsLoadingMedia(false));
     }
+  }, [block.type, block.content.dbKey]);
 
-    return (
-        <div className="my-4 p-4 bg-secondary rounded-lg grid grid-cols-[auto,1fr,auto] items-center gap-x-4 gap-y-2">
-            <PaperClipIcon className="w-5 h-5 text-muted-foreground"/>
-            <span className="truncate text-sm font-medium">{block.content.name || 'Attached File'}</span>
-            {fileUrl && <a href={fileUrl} download={block.content.name} className="text-sm text-primary hover:underline justify-self-end">Download</a>}
-            
-            {(block.content.summary || block.content.isGeneratingSummary || block.content.summaryError) && (
-                <div className="col-span-3">
-                    {block.content.summary && <p className="text-sm text-muted-foreground italic mt-2">{block.content.summary}</p>}
-                    {block.content.isGeneratingSummary && <p className="text-sm text-primary/80 italic mt-2">AI is generating a summary...</p>}
-                    {block.content.summaryError && <p className="text-sm text-destructive italic mt-2">Error: {block.content.summaryError}</p>}
-                </div>
-            )}
-        </div>
-    );
-};
+  const handleEmbedUrlSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+    const url = embedUrlInput.trim();
+    if (!url) return;
 
-const EmbedBlock: React.FC<{ block: ContentBlock; updateBlock: (b: ContentBlock) => void; note: Note; updateNote: (updatedNote: Note) => void; }> = ({ block, updateBlock, note, updateNote }) => {
-    const [urlInput, setUrlInput] = useState(block.content.url || '');
-    const [isEditing, setIsEditing] = useState(!block.content.url);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-
-    const [showEnhancedSummary, setShowEnhancedSummary] = useState(false);
-    const [showQA, setShowQA] = useState(false);
-    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model'; text: string }[]>([]);
-    const [currentQuestion, setCurrentQuestion] = useState('');
-    const [isAsking, setIsAsking] = useState(false);
-    
-    const noteRef = useRef(note);
-    useEffect(() => {
-        noteRef.current = note;
-    }, [note]);
-
-    const [isGeneratingVideoAnswer, setIsGeneratingVideoAnswer] = useState(false);
-    const [showVideoQAPrompt, setShowVideoQAPrompt] = useState(false);
-    const [videoQuestion, setVideoQuestion] = useState('');
-
-    const handleAskQuestionAboutVideo = async (question: string) => {
-        if (!question.trim() || !block.content.url) return;
-        
-        setIsGeneratingVideoAnswer(true);
-        try {
-            const answer = await answerQuestionAboutYouTubeVideo(block.content.url, question);
-            
-            const answerBlock: ContentBlock = {
-                id: self.crypto.randomUUID(),
-                type: ContentBlockType.TEXT,
-                content: { text: `**Q: ${question}**\n\n${answer}` },
-                createdAt: new Date().toISOString()
-            };
-            
-            const videoBlockIndex = noteRef.current.content.findIndex(b => b.id === block.id);
-            const newContent = [...noteRef.current.content];
-            newContent.splice(videoBlockIndex + 1, 0, answerBlock);
-            updateNote({ ...noteRef.current, content: newContent });
-        } catch (error) {
-            console.error('Error asking question about video:', error);
-        } finally {
-            setIsGeneratingVideoAnswer(false);
-        }
-    };
-
-    const handleGeneratePreview = async () => {
-        if (!urlInput.trim()) return;
-        
-        setIsLoading(true);
-        setError(null);
-        
-        const isGoogleWorkspace = /docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([a-zA-Z0-9-_]+)/.test(urlInput);
-        const isYoutube = urlInput.includes('youtube.com') || urlInput.includes('youtu.be');
-
-        let title = '';
-        let summary = '';
-        let embedUrl: string | null = null;
-        let thumbnailUrl: string | null = null;
-
-        try {
-            if (isGoogleWorkspace) {
-                const preview = await summarizeGoogleWorkspaceDoc(urlInput);
-                title = preview.title;
-                summary = preview.summary;
-                const docIdMatch = urlInput.match(/\/d\/([a-zA-Z0-9-_]+)/);
-                const docTypeMatch = urlInput.match(/docs\.google\.com\/(document|spreadsheets|presentation)/);
-                if (docIdMatch && docTypeMatch) {
-                    embedUrl = `https://docs.google.com/${docTypeMatch[1]}/d/${docIdMatch[1]}/preview`;
-                }
-            } else if (isYoutube) {
-                const videoId = extractYouTubeVideoId(urlInput);
-                if (!videoId) throw new Error('Invalid YouTube URL. Please check the URL and try again.');
-                
-                thumbnailUrl = getYouTubeThumbnail(videoId);
-                embedUrl = `https://www.youtube.com/embed/${videoId}`;
-                
-                try {
-                    const videoInfo = await getYouTubeVideoInfo(videoId);
-                    title = videoInfo.title;
-                    summary = await generateYouTubeSummaryFromTitle(videoInfo.title);
-                } catch (e) {
-                    console.warn("Falling back for YouTube summary:", e);
-                    title = `YouTube Video (${videoId})`;
-                    summary = 'Video embedded successfully. Click "Enhanced Summary" for more details.';
-                }
-
-            } else {
-                try {
-                    const preview = await generateWebsiteSummary(urlInput);
-                    title = preview.title;
-                    summary = preview.summary;
-                } catch (e) {
-                    title = new URL(urlInput).hostname;
-                    summary = 'Summary not available.';
-                }
-                thumbnailUrl = getWebsiteThumbnail(urlInput);
-            }
-            
-            updateBlock({
-                ...block,
-                content: { ...block.content, url: urlInput, title, summary, embedUrl, thumbnail: thumbnailUrl || undefined },
-            });
-            setIsEditing(false);
-        } catch (err: any) {
-            console.error("Failed to generate link preview", err);
-            setError(err.message || 'Could not generate a preview for this link.');
-            // Update with error state if you want to show it in the block itself
-            updateBlock({
-                ...block,
-                content: { ...block.content, url: urlInput, title: 'Error', summary: err.message },
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    
-    const handleReset = () => {
-        updateBlock({
-            ...block,
-            content: { url: '', title: '', summary: '', embedUrl: '', thumbnail: '' },
-        });
-        setIsEditing(true);
-    };
-    
-    const handleEnhancedSummary = async () => {
-        if (block.content.enhancedSummary) {
-            setShowEnhancedSummary(!showEnhancedSummary);
-            return;
-        }
-        updateBlock({ ...block, content: { ...block.content, isGeneratingEnhancedSummary: true, enhancedSummaryError: null } });
-
-        try {
-            const urlType = block.content.embedUrl ? 'doc' : (block.content.url?.includes('youtube') || block.content.url?.includes('youtu.be') ? 'youtube' : 'website');
-            const summary = await generateEnhancedSummary(block.content.title!, urlType as any);
-            updateBlock({ ...block, content: { ...block.content, enhancedSummary: summary, isGeneratingEnhancedSummary: false } });
-            setShowEnhancedSummary(true);
-        } catch (err: any) {
-            updateBlock({ ...block, content: { ...block.content, isGeneratingEnhancedSummary: false, enhancedSummaryError: err.message || 'Failed to generate summary.' } });
-        }
-    };
-
-    const handleAskQuestion = async () => {
-        if (!currentQuestion.trim()) return;
-        const newUserMessage = { role: 'user' as const, text: currentQuestion };
-        setChatHistory(prev => [...prev, newUserMessage]);
-        setIsAsking(true);
-        setCurrentQuestion('');
-
-        try {
-            const answer = await askQuestionAboutEmbeddedContent(block.content, newUserMessage.text, chatHistory);
-            const modelMessage = { role: 'model' as const, text: answer };
-            setChatHistory(prev => [...prev, modelMessage]);
-        } catch (err) {
-            const errorMessage = { role: 'model' as const, text: 'Sorry, I had trouble answering that. Please try again.' };
-            setChatHistory(prev => [...prev, errorMessage]);
-        } finally {
-            setIsAsking(false);
-        }
-    };
-    
-    const renderMarkdown = (text: string): { __html: string } => {
-      let html = text
-        .replace(/### (.*?)(\n|$)/g, '<h3 class="text-lg font-semibold mt-3 mb-2 text-foreground">$1</h3>')
-        .replace(/## (.*?)(\n|$)/g, '<h2 class="text-xl font-bold mt-4 mb-2 text-foreground">$1</h2>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
-        .replace(/^- (.*?)$/gm, '<li class="ml-4">$1</li>')
-        .replace(/\n\n/g, '<br/><br/>');
-      html = html.replace(/(<li.*?<\/li>\n?)+/g, '<ul class="list-disc ml-4 my-2">$1</ul>');
-      html = html.replace(/\n/g, '<br/>');
-      return { __html: html };
-    };
-
-    if (isEditing || !block.content.url) {
-        return (
-            <div className="my-4">
-                <div className="flex items-center gap-2 bg-secondary rounded-lg p-2">
-                    <LinkIcon className="w-5 h-5 text-muted-foreground" />
-                    <input
-                        type="text"
-                        value={urlInput}
-                        onChange={(e) => setUrlInput(e.target.value)}
-                        placeholder="Paste a link..."
-                        className="flex-1 bg-transparent focus:outline-none text-sm placeholder:text-muted-foreground"
-                        onKeyDown={(e) => e.key === 'Enter' && handleGeneratePreview()}
-                        disabled={isLoading}
-                    />
-                    <button onClick={handleGeneratePreview} disabled={isLoading || !urlInput.trim()}>
-                        {isLoading ? <SpinnerIcon className="w-5 h-5 text-primary" /> : <PaperAirplaneIcon className="w-5 h-5 text-muted-foreground hover:text-primary" />}
-                    </button>
-                </div>
-                {error && <p className="text-sm text-destructive mt-2 px-2">{error}</p>}
-            </div>
-        );
+    updateBlock({ ...block, content: { ...block.content, url, isGeneratingSummary: true, summaryError: null } });
+    try {
+      const videoId = extractYouTubeVideoId(url);
+      const thumbnail = videoId ? getYouTubeThumbnail(videoId) : getWebsiteThumbnail(url);
+      
+      const { title, summary, isEmbeddable } = await generateLinkPreview(url);
+      updateBlock({ ...block, content: { ...block.content, url, title, summary, thumbnail, isGeneratingSummary: false, isEmbeddable } });
+    } catch (error: any) {
+      updateBlock({ ...block, content: { ...block.content, url, isGeneratingSummary: false, summaryError: error.message || 'Could not fetch preview.' } });
     }
-    
-    const isYoutube = block.content.url?.includes('youtube') || block.content.url?.includes('youtu.be');
+    setEmbedUrlInput('');
+  }, [embedUrlInput, block, updateBlock]);
 
-    const renderYoutubeEmbed = () => {
-        const videoId = extractYouTubeVideoId(block.content.url!);
-        if (!videoId) {
-            return (
-                <div className="aspect-video w-full bg-black flex items-center justify-center">
-                    <p className="text-red-500">Invalid YouTube URL</p>
-                </div>
-            );
-        }
-        return (
-            <div className="relative w-full" style={{ paddingBottom: '56.25%', height: 0 }}>
-                <iframe
-                    src={`https://www.youtube.com/embed/${videoId}?rel=0`}
-                    className="absolute top-0 left-0 w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    title={block.content.title || 'YouTube video'}
-                    frameBorder="0"
-                    loading="lazy"
-                />
-            </div>
-        );
-    };
-
-    return (
-        <div className="my-4 bg-secondary rounded-lg border border-border overflow-hidden relative group/embed">
-            {/* Preview Section */}
-            {isYoutube ? renderYoutubeEmbed() 
-              : block.content.embedUrl ? (
-                 <div className="aspect-video w-full bg-white"><iframe src={block.content.embedUrl} title={block.content.title} className="w-full h-full" sandbox="allow-scripts allow-same-origin"></iframe></div>
-              ) : (
-                <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="block relative group bg-muted">
-                    <img src={block.content.thumbnail} alt={block.content.title} className="w-full h-48 object-cover opacity-60 group-hover:opacity-80 transition-opacity" onError={(e) => e.currentTarget.style.display = 'none'} />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/10">
-                        <ExternalLinkIcon className="w-10 h-10 text-white opacity-0 group-hover:opacity-80 transition-opacity" />
-                    </div>
-                </a>
-            )}
-
-            {/* Info & Actions Section */}
-            <div className="p-4">
-                <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                    <h3 className="font-semibold text-foreground truncate">{block.content.title}</h3>
-                </a>
-                {block.content.summary && <p className="text-sm text-muted-foreground italic mt-1">{block.content.summary}</p>}
-
-                {/* Action Buttons */}
-                <div className="flex gap-3 mt-4">
-                    <button onClick={handleEnhancedSummary} disabled={!!block.content.isGeneratingEnhancedSummary} className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-accent hover:text-accent-foreground transition-all flex items-center justify-center gap-2 disabled:opacity-50 text-sm">
-                        {block.content.isGeneratingEnhancedSummary ? <SpinnerIcon className="w-4 h-4" /> : <FileTextIcon className="w-4 h-4" />}
-                        <span>Enhanced Summary</span>
-                        {showEnhancedSummary ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
-                    </button>
-                    {!isYoutube && (
-                        <button onClick={() => setShowQA(!showQA)} className="flex-1 px-4 py-2 bg-muted text-foreground rounded-lg hover:bg-accent hover:text-accent-foreground transition-all flex items-center justify-center gap-2 text-sm">
-                            <MessageSquareIcon className="w-4 h-4" />
-                            <span>Ask a Question</span>
-                        </button>
-                    )}
-                </div>
-
-                {/* Enhanced Summary Display */}
-                {block.content.enhancedSummaryError && <p className="text-sm text-destructive mt-2">{block.content.enhancedSummaryError}</p>}
-                {showEnhancedSummary && block.content.enhancedSummary && (
-                    <div className="mt-4 p-4 bg-background rounded-lg border border-border">
-                        <div className="prose prose-sm prose-invert max-w-none" dangerouslySetInnerHTML={renderMarkdown(block.content.enhancedSummary)} />
-                    </div>
-                )}
-
-                {/* Q&A Section */}
-                {isYoutube ? (
-                    <div className="mt-4 space-y-2">
-                        {!showVideoQAPrompt && (
-                        <button 
-                            onClick={() => setShowVideoQAPrompt(true)}
-                            className="flex items-center gap-2 text-sm text-primary hover:text-primary/80"
-                        >
-                            <SparklesIcon className="w-4 h-4" /> Ask question about this video
-                        </button>
-                        )}
-                        
-                        {showVideoQAPrompt && (
-                        <form 
-                            onSubmit={(e) => {
-                            e.preventDefault();
-                            handleAskQuestionAboutVideo(videoQuestion);
-                            setVideoQuestion('');
-                            setShowVideoQAPrompt(false);
-                            }}
-                            className="flex items-center gap-2 mt-2 bg-background p-2 rounded-lg"
-                        >
-                            <input
-                            type="text"
-                            value={videoQuestion}
-                            onChange={(e) => setVideoQuestion(e.target.value)}
-                            placeholder="e.g., What are the main points discussed?"
-                            className="flex-1 bg-transparent focus:outline-none text-sm placeholder:text-muted-foreground"
-                            autoFocus
-                            disabled={isGeneratingVideoAnswer}
-                            />
-                            <button 
-                            type="submit" 
-                            className="text-primary p-1 rounded-md hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-                            disabled={isGeneratingVideoAnswer || !videoQuestion.trim()}
-                            >
-                            {isGeneratingVideoAnswer ? (
-                                <StopIcon className="w-5 h-5 animate-pulse" />
-                            ) : (
-                                <PaperAirplaneIcon className="w-5 h-5" />
-                            )}
-                            </button>
-                        </form>
-                        )}
-                    </div>
-                ) : (
-                    showQA && (
-                        <div className="mt-4 border-t border-border pt-4">
-                            {chatHistory.length > 0 && (
-                                <div className="mb-4 space-y-3 max-h-60 overflow-y-auto pr-2">
-                                    {chatHistory.map((msg, idx) => (
-                                        <div key={idx} className={`p-3 rounded-lg text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground ml-8' : 'bg-muted text-muted-foreground mr-8'}`}>
-                                            <p className="font-semibold mb-1">{msg.role === 'user' ? 'You' : 'MindCanvas'}</p>
-                                            <p className="whitespace-pre-wrap">{msg.text}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            <div className="flex gap-2 items-center">
-                                <input type="text" value={currentQuestion} onChange={(e) => setCurrentQuestion(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleAskQuestion()} placeholder="Ask a follow-up..." disabled={isAsking}
-                                    className="flex-1 px-3 py-2 bg-muted rounded-lg focus:outline-none text-sm" />
-                                <button onClick={handleAskQuestion} disabled={isAsking || !currentQuestion.trim()} className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground">
-                                    {isAsking ? <SpinnerIcon className="w-5 h-5" /> : <PaperAirplaneIcon className="w-5 h-5" />}
-                                </button>
-                            </div>
-                        </div>
-                    )
-                )}
-            </div>
-             <button
-                onClick={handleReset}
-                className="absolute -top-2 -right-2 p-1 bg-card rounded-full text-muted-foreground hover:text-foreground opacity-0 group-hover/embed:opacity-100 transition-opacity"
-            >
-                <XMarkIcon className="w-4 h-4" />
-            </button>
-        </div>
-    );
-};
-
-
-const ContentBlockComponent: React.FC<ContentBlockProps> = ({ note, updateNote, block, updateBlock, deleteBlock, onAskAIAboutImage, askingImageAIBlockId, onInputFocus }) => {
-  const blockRef = useRef<HTMLDivElement>(null);
-  
   const renderBlock = () => {
     switch (block.type) {
       case ContentBlockType.HEADER:
-        return <TextBlock block={block} updateBlock={updateBlock} isHeader={true} onFocus={onInputFocus} />;
+        return (
+          <div className="relative group">
+            <input
+              type="text"
+              value={block.content.text || ''}
+              onChange={(e) => updateBlock({ ...block, content: { ...block.content, text: e.target.value } })}
+              onFocus={(e) => onInputFocus(e.target, block.id)}
+              placeholder="Header"
+              className="text-2xl font-bold bg-transparent focus:outline-none w-full text-foreground placeholder-muted-foreground pr-10"
+            />
+            <button
+              onClick={() => deleteBlock(block.id)}
+              className="absolute top-1/2 -translate-y-1/2 right-0 z-10 p-1.5 text-muted-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary focus:opacity-100"
+              aria-label="Delete header"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
+          </div>
+        );
       case ContentBlockType.TEXT:
-        return <TextBlock block={block} updateBlock={updateBlock} isHeader={false} onFocus={onInputFocus} />;
+        return (
+           <div className="flex items-start gap-2 group">
+            <AutoResizingTextarea
+              value={block.content.text || ''}
+              onChange={(e) => updateBlock({ ...block, content: { ...block.content, text: e.target.value } })}
+              onFocus={(e) => onInputFocus(e.target, block.id)}
+              placeholder="Type something..."
+              className="flex-1 bg-transparent focus:outline-none resize-none text-foreground placeholder-muted-foreground leading-relaxed"
+              rows={1}
+            />
+            <button
+              onClick={() => deleteBlock(block.id)}
+              className="p-1.5 text-muted-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary focus:opacity-100"
+              aria-label="Delete text block"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
+          </div>
+        );
       case ContentBlockType.CHECKLIST:
-        return <ChecklistBlock block={block} updateBlock={updateBlock} onFocus={onInputFocus} />;
+        return (
+          <div className="flex items-baseline gap-2 group">
+            <div className="space-y-2 flex-1">
+              {(block.content.items || []).map((item, index) => (
+                <div key={item.id} className="flex items-center gap-2 group/item">
+                  <input
+                    type="checkbox"
+                    checked={item.checked}
+                    onChange={() => {
+                      const newItems = [...(block.content.items || [])];
+                      newItems[index] = { ...item, checked: !item.checked };
+                      updateBlock({ ...block, content: { ...block.content, items: newItems } });
+                    }}
+                    className="w-5 h-5 rounded text-primary bg-secondary border-border focus:ring-primary focus:ring-2"
+                  />
+                  <input
+                    type="text"
+                    value={item.text}
+                    onChange={(e) => {
+                      const newItems = [...(block.content.items || [])];
+                      newItems[index] = { ...item, text: e.target.value };
+                      updateBlock({ ...block, content: { ...block.content, items: newItems } });
+                    }}
+                    onFocus={(e) => onInputFocus(e.target, block.id, item.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          const newItems = [...(block.content.items || [])];
+                          newItems.splice(index + 1, 0, { id: self.crypto.randomUUID(), text: '', checked: false });
+                          updateBlock({ ...block, content: { ...block.content, items: newItems } });
+                      } else if (e.key === 'Backspace' && !item.text && block.content.items.length > 1) {
+                          e.preventDefault();
+                          const newItems = (block.content.items || []).filter(i => i.id !== item.id);
+                          updateBlock({ ...block, content: { ...block.content, items: newItems } });
+                      }
+                    }}
+                    placeholder="List item"
+                    className={`flex-1 bg-transparent focus:outline-none ${item.checked ? 'line-through text-muted-foreground' : ''}`}
+                  />
+                </div>
+              ))}
+            </div>
+             <button
+              onClick={() => deleteBlock(block.id)}
+              className="p-1.5 text-muted-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-secondary focus:opacity-100"
+              aria-label="Delete checklist"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
+          </div>
+        );
       case ContentBlockType.IMAGE:
-        return <ImageBlock block={block} onAskAIAboutImage={onAskAIAboutImage} askingImageAIBlockId={askingImageAIBlockId} />;
-      case ContentBlockType.AUDIO:
-          return <AudioBlock block={block} />;
+        if (isLoadingMedia) return <div className="bg-secondary rounded-lg aspect-video animate-pulse"></div>;
+        return (
+          <div className="relative bg-card border border-border rounded-lg overflow-hidden group">
+            <button
+                onClick={() => deleteBlock(block.id)}
+                className="absolute top-2 right-2 z-10 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 focus:opacity-100"
+                aria-label="Delete image"
+            >
+                <TrashIcon className="w-4 h-4" />
+            </button>
+            {mediaUrl && (
+              <img
+                src={mediaUrl}
+                alt={block.content.description || 'User uploaded image'}
+                className="w-full h-auto cursor-zoom-in"
+                onClick={() => onViewImage(mediaUrl, block.content.description || 'User uploaded image')}
+              />
+            )}
+            <div className="p-4 space-y-3">
+              {block.content.isRecognizingFaces && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground italic">
+                    <SpinnerIcon className="w-4 h-4 text-primary" />
+                    <span>Recognizing faces...</span>
+                  </div>
+              )}
+              {(block.content.isGeneratingDescription || block.content.description) && (
+                  <div className="flex items-start gap-2 text-sm">
+                    <SparklesIcon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${block.content.isGeneratingDescription ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
+                    <p className="text-muted-foreground italic">{block.content.isGeneratingDescription ? 'AI is writing a description...' : block.content.description}</p>
+                  </div>
+              )}
+              {block.content.descriptionError && <p className="text-sm text-destructive">{block.content.descriptionError}</p>}
+              
+               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {block.content.photoTakenAt && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <CalendarDaysIcon className="w-3 h-3" />
+                            <span>{new Date(block.content.photoTakenAt).toLocaleString()}</span>
+                        </div>
+                    )}
+                    {block.content.location && (
+                        <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${block.content.location.lat},${block.content.location.lon}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+                            title={`Lat: ${block.content.location.lat.toFixed(4)}, Lon: ${block.content.location.lon.toFixed(4)}`}
+                        >
+                            <MapPinIcon className="w-3 h-3" />
+                            <span>View Location</span>
+                        </a>
+                    )}
+                </div>
+
+              {block.content.faces && block.content.faces.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <UserIcon className="w-5 h-5 text-muted-foreground" />
+                  {block.content.faces.map(face => (
+                    <span key={`${face.name}-${face.box.x}`} className="text-xs font-bold bg-success/10 text-success-foreground px-2 py-1 rounded-full">{face.name}</span>
+                  ))}
+                </div>
+              )}
+              {block.content.faceRecognitionError && <p className="text-sm text-destructive">{block.content.faceRecognitionError}</p>}
+              
+              <form onSubmit={(e) => { e.preventDefault(); onAskAIAboutImage(block.id, aiQuestion); setAiQuestion(''); }} className="flex items-center gap-2">
+                <input type="text" value={aiQuestion} onChange={e => setAiQuestion(e.target.value)} placeholder="Ask about this image..." className="flex-1 bg-secondary rounded-md p-2 focus:outline-none text-sm"/>
+                <button type="submit" disabled={!aiQuestion.trim() || askingImageAIBlockId === block.id} className="p-2 bg-primary rounded-md text-primary-foreground disabled:bg-muted">
+                  {askingImageAIBlockId === block.id ? <SpinnerIcon className="w-5 h-5"/> : <PaperAirplaneIcon />}
+                </button>
+              </form>
+            </div>
+          </div>
+        );
       case ContentBlockType.VIDEO:
-          return <VideoBlock block={block} />;
+      case ContentBlockType.AUDIO:
+        const isVideo = block.type === ContentBlockType.VIDEO;
+        if (isLoadingMedia) return <div className="bg-secondary rounded-lg aspect-video animate-pulse"></div>;
+        return (
+            <div className="relative bg-card border border-border rounded-lg overflow-hidden group">
+                <button
+                    onClick={() => deleteBlock(block.id)}
+                    className="absolute top-2 right-2 z-10 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 focus:opacity-100"
+                    aria-label={isVideo ? "Delete video" : "Delete audio"}
+                >
+                    <TrashIcon className="w-4 h-4" />
+                </button>
+                {mediaUrl && (
+                    isVideo ? <video src={mediaUrl} controls className="w-full" /> : <audio src={mediaUrl} controls className="w-full p-4" />
+                )}
+                <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                        {isVideo ? <VideoCameraIcon className="w-5 h-5 text-muted-foreground"/> : <SpeakerWaveIcon className="w-5 h-5 text-muted-foreground"/>}
+                        <span className="text-sm font-semibold text-foreground truncate">{block.content.name}</span>
+                    </div>
+                    {(block.content.isGeneratingSummary || block.content.summary) && (
+                        <div className="flex items-start gap-2 text-sm">
+                            <SparklesIcon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${block.content.isGeneratingSummary ? 'text-primary animate-pulse' : 'text-muted-foreground'}`} />
+                            <p className="text-muted-foreground italic">{block.content.isGeneratingSummary ? 'AI is generating a summary...' : block.content.summary}</p>
+                        </div>
+                    )}
+                    {block.content.summaryError && <p className="text-sm text-destructive">{block.content.summaryError}</p>}
+                </div>
+            </div>
+        );
       case ContentBlockType.FILE:
-          return <FileBlock block={block} />;
+         return (
+            <div className="relative bg-card border border-border rounded-lg p-4 flex items-center justify-between group">
+                <button
+                    onClick={() => deleteBlock(block.id)}
+                    className="absolute top-2 right-2 z-10 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 focus:opacity-100"
+                    aria-label="Delete file"
+                >
+                    <TrashIcon className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-3 min-w-0 pr-8">
+                    <FileTextIcon className="w-6 h-6 text-muted-foreground flex-shrink-0"/>
+                    <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{block.content.name}</p>
+                         {(block.content.isGeneratingSummary || block.content.summary) && (
+                            <p className="text-xs text-muted-foreground italic truncate">{block.content.isGeneratingSummary ? 'Summarizing...' : block.content.summary}</p>
+                        )}
+                        {block.content.summaryError && <p className="text-xs text-destructive truncate">{block.content.summaryError}</p>}
+                    </div>
+                </div>
+                {mediaUrl && <a href={mediaUrl} download={block.content.name} className="text-primary text-sm font-semibold hover:underline">Download</a>}
+            </div>
+        );
       case ContentBlockType.EMBED:
-          return <EmbedBlock block={block} updateBlock={updateBlock} note={note} updateNote={updateNote} />;
+        const videoId = block.content.url ? extractYouTubeVideoId(block.content.url) : null;
+        if (!block.content.url) {
+            return (
+                <form onSubmit={handleEmbedUrlSubmit} className="flex items-center gap-2">
+                    <LinkIcon className="w-5 h-5 text-muted-foreground"/>
+                    <input type="url" value={embedUrlInput} onChange={e => setEmbedUrlInput(e.target.value)} placeholder="Paste a link..." className="flex-1 bg-secondary rounded-md p-2 focus:outline-none text-sm"/>
+                    <button type="submit" className="p-2 bg-primary rounded-md text-primary-foreground"><PaperAirplaneIcon /></button>
+                </form>
+            );
+        }
+        if (block.content.isGeneratingSummary) {
+            return <div className="bg-secondary rounded-lg p-4 animate-pulse flex items-center gap-2"><SpinnerIcon/><span>Fetching preview...</span></div>
+        }
+        if (block.content.summaryError) {
+             return <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-4 text-sm">{block.content.summaryError}</div>
+        }
+        return (
+            <div className="relative bg-card border border-border rounded-lg overflow-hidden group">
+                <button
+                    onClick={() => deleteBlock(block.id)}
+                    className="absolute top-2 right-2 z-10 p-1.5 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70 focus:opacity-100"
+                    aria-label="Delete embed"
+                >
+                    <TrashIcon className="w-4 h-4" />
+                </button>
+                {videoId && block.content.isEmbeddable ? (
+                    <div className="aspect-video">
+                        <iframe src={`https://www.youtube.com/embed/${videoId}`} title={block.content.title} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="w-full h-full"></iframe>
+                    </div>
+                ) : (
+                    block.content.thumbnail && <img src={block.content.thumbnail} alt="Website thumbnail" className="w-full h-auto object-cover max-h-64" />
+                )}
+                <div className="p-4 space-y-3">
+                    <a href={block.content.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-foreground font-bold hover:underline">
+                        <span>{block.content.title || 'Untitled'}</span><ExternalLinkIcon className="w-4 h-4" />
+                    </a>
+                    <p className="text-sm text-muted-foreground">{block.content.summary}</p>
+                </div>
+            </div>
+        );
       default:
-        return <div className="text-red-500">Unsupported block type</div>;
+        return null;
     }
   };
 
   return (
-    <div ref={blockRef} className="relative group">
-        <div className="flex items-start gap-2">
-            <div className="flex-1">
-                {renderBlock()}
-            </div>
-            <button
-                onClick={() => deleteBlock(block.id)}
-                className="p-1.5 rounded-full text-muted-foreground hover:bg-secondary hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity absolute -right-8 top-1/2 -translate-y-1/2"
-                title="Delete block"
-            >
-                <TrashIcon className="w-4 h-4" />
-            </button>
-        </div>
+     <div className="relative my-2">
+        <div className="group/block">{renderBlock()}</div>
     </div>
   );
 };

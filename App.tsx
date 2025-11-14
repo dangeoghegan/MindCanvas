@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName, Theme, AITask } from './types';
+import { Note, ContentBlock, ContentBlockType, ChatMessage, ChecklistItem, ChatMessageSourceNote, AutoDeleteRule, RetentionPeriod, VoiceName, Theme, AITask, UserProfile, DynamicCategory } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import NoteEditor from './components/NoteEditor';
 import ReviewView from './components/ReviewView';
+import ImageModal from './components/ImageModal';
 import AIPromptBar from './components/AIPromptBar';
 import ChatView from './components/ChatView';
 import LibraryView from './components/LibraryView';
@@ -10,9 +11,11 @@ import MediaView from './components/MediaView';
 import SettingsView from './components/SettingsView';
 import BottomNavBar from './components/BottomNavBar';
 import { ConversationModeOverlay } from './components/ConversationModeOverlay';
-import { answerQuestionFromContext, generateTitle, generateImageDescription, summarizeVideo, summarizeAudio, generateTagsForNote, summarizePdf } from './services/geminiService';
+import { answerQuestionFromContext, generateTitle, generateImageDescription, summarizeVideo, summarizeAudio, generateTagsForNote, summarizePdf, generateYouTubeSummaryFromTranscript, generateDynamicCategories } from './services/geminiService';
 import { initDB, saveMedia, getMedia, deleteMedia } from './services/dbService';
 import { faceRecognitionService } from './services/faceRecognitionService';
+import { useSwipeNavigation } from './hooks/useSwipeNavigation';
+import { SwipeIndicator } from './components/SwipeIndicator';
 
 const initialNotes: Note[] = [
     {
@@ -79,19 +82,24 @@ function App() {
   const [isLoadingAI, setIsLoadingAI] = useState(false);
   const [aiResponse, setAiResponse] = useState<string | null>(null);
 
+  const [viewingImage, setViewingImage] = useState<{ url: string; alt: string } | null>(null);
   const [currentView, setCurrentView] = useState<'dashboard' | 'note' | 'chat' | 'library' | 'media' | 'settings'>('library');
   const [previousView, setPreviousView] = useState<'dashboard' | 'library' | 'media' | 'settings'>('library');
 
-  const [chatMessages, setChatMessages] = useLocalStorage<ChatMessage[]>('granula-chat-history', []);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatLoading, setIsChatLoading] = useState(false);
 
   const [masterPeopleList, setMasterPeopleList] = useLocalStorage<string[]>('granula-people', ['Jane Doe', 'John Smith']);
   const [autoDeleteRules, setAutoDeleteRules] = useLocalStorage<AutoDeleteRule[]>('granula-auto-delete-rules', []);
   const [selectedVoice, setSelectedVoice] = useLocalStorage<VoiceName>('granula-selected-voice', 'Kore');
   const [theme, setTheme] = useLocalStorage<Theme>('granula-theme', 'light');
+  const [userProfile, setUserProfile] = useLocalStorage<UserProfile>('granula-user-profile', { name: 'Alex' });
+  const [dynamicCategories, setDynamicCategories] = useLocalStorage<DynamicCategory[]>('granula-dynamic-categories', []);
+  const [isGeneratingCategories, setIsGeneratingCategories] = useState(false);
 
   const [isConversationModeActive, setIsConversationModeActive] = useState(false);
-  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' } | null>(null);
+  const [shortcutAction, setShortcutAction] = useState<{ noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' | 'camera-menu' } | null>(null);
+  const [initialNoteOnOpen, setInitialNoteOnOpen] = useState<Note | null>(null);
 
   // Background Task Queue
   const [taskQueue, setTaskQueue] = useLocalStorage<AITask[]>('granula-ai-task-queue', []);
@@ -109,6 +117,7 @@ function App() {
   };
 
   const removePersonFromMasterList = (nameToRemove: string) => {
+      faceRecognitionService.deletePerson(nameToRemove);
       setMasterPeopleList(prev => prev.filter(p => p !== nameToRemove));
       // Also remove the person from all notes
       setNotes(prevNotes => prevNotes.map(note => ({
@@ -147,19 +156,44 @@ function App() {
     });
   }, []);
 
-  const handleNewNote = useCallback(() => {
+  const handleGenerateCategories = useCallback(async () => {
+    setIsGeneratingCategories(true);
+    try {
+        const notesContext = notes.map(getNoteContentAsStringForTitle).join('\n\n---\n\n');
+        const categories = await generateDynamicCategories(notesContext);
+        setDynamicCategories(categories);
+    } catch (error) {
+        console.error('Failed to generate dynamic categories', error);
+        // Optionally, show an error to the user
+    } finally {
+        setIsGeneratingCategories(false);
+    }
+  }, [notes, setDynamicCategories]);
+
+  const handleNewNote = useCallback((options?: { open?: boolean; title?: string; content?: string }) => {
+    const { open = true, title = 'Untitled Note', content } = options || {};
+
     const newNote: Note = {
       id: self.crypto.randomUUID(),
-      title: 'Untitled Note',
+      title: title,
       createdAt: new Date().toISOString(),
-      content: [{ id: self.crypto.randomUUID(), type: ContentBlockType.TEXT, content: { text: '' }, createdAt: new Date().toISOString() }],
+      content: [{
+        id: self.crypto.randomUUID(),
+        type: ContentBlockType.TEXT,
+        content: { text: content || '' }, // Ensure content is at least an empty string
+        createdAt: new Date().toISOString()
+      }],
     };
+    
     setNotes(prevNotes => [newNote, ...prevNotes]);
-    setActiveNoteId(newNote.id);
-    setCurrentView('note');
+    
+    if (open) {
+      setActiveNoteId(newNote.id);
+      setCurrentView('note');
+    }
   }, [setNotes, setActiveNoteId, setCurrentView]);
 
-  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist') => {
+  const handleShortcut = useCallback((action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' | 'camera-menu') => {
     let content: ContentBlock[] = [];
     if (action === 'embed') {
         content.push({ 
@@ -193,6 +227,9 @@ function App() {
           case 'new-note':
             handleNewNote();
             break;
+          case 'take-media':
+            handleShortcut('camera-menu');
+            break;
           case 'take-photo':
             handleShortcut('photo');
             break;
@@ -201,6 +238,9 @@ function App() {
             break;
           case 'record-audio':
             handleShortcut('audio');
+            break;
+          case 'ai-checklist':
+            handleShortcut('ai-checklist');
             break;
           case 'conversation':
             setIsConversationModeActive(true);
@@ -290,51 +330,60 @@ function App() {
                 }
             }
 
-            // Task: Media Processing (Summaries, Descriptions)
+            // Task: Media Processing (Summaries, Descriptions) - with persistent retries
             for (const block of note.content) {
+                // Check for media stored in DB
                 if (block.content.dbKey) {
-                    const isImage = block.type === ContentBlockType.IMAGE && !block.content.description && !block.content.isGeneratingDescription && !block.content.descriptionError && typeof block.content.faces !== 'undefined';
-                    const isVideo = block.type === ContentBlockType.VIDEO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
-                    const isAudio = block.type === ContentBlockType.AUDIO && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
-                    const isPdf = block.type === ContentBlockType.FILE && block.content.mimeType === 'application/pdf' && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError;
-
-                    if (isImage) {
+                    // Image Description: Queue if no description exists and not currently generating.
+                    // This will re-queue on any failure.
+                    if (block.type === ContentBlockType.IMAGE && !block.content.description && !block.content.isGeneratingDescription) {
                         const taskId = `${note.id}-${block.id}-generateImageDescription`;
-                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'generateImageDescription', noteId: note.id, blockId: block.id });
+                        if (!existingTaskIds.has(taskId)) {
+                            newTasks.push({ id: taskId, type: 'generateImageDescription', noteId: note.id, blockId: block.id });
+                        }
                     }
-                    if (isVideo) {
+
+                    // Video Summary: Queue if no summary exists and not currently generating.
+                    // This will re-queue on any failure.
+                    if (block.type === ContentBlockType.VIDEO && !block.content.summary && !block.content.isGeneratingSummary) {
                         const taskId = `${note.id}-${block.id}-summarizeVideo`;
-                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'summarizeVideo', noteId: note.id, blockId: block.id });
+                        if (!existingTaskIds.has(taskId)) {
+                            newTasks.push({ id: taskId, type: 'summarizeVideo', noteId: note.id, blockId: block.id });
+                        }
                     }
-                    if (isAudio) {
+                    
+                    // Audio Summary: Queue if no summary exists and not currently generating.
+                    // This will re-queue on any failure.
+                    if (block.type === ContentBlockType.AUDIO && !block.content.summary && !block.content.isGeneratingSummary) {
                         const taskId = `${note.id}-${block.id}-summarizeAudio`;
-                        if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'summarizeAudio', noteId: note.id, blockId: block.id });
+                        if (!existingTaskIds.has(taskId)) {
+                            newTasks.push({ id: taskId, type: 'summarizeAudio', noteId: note.id, blockId: block.id });
+                        }
                     }
-                    if (isPdf) {
+
+                    // PDF summaries (no retry logic specified for these)
+                    if (block.type === ContentBlockType.FILE && block.content.mimeType === 'application/pdf' && !block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError) {
                         const taskId = `${note.id}-${block.id}-summarizePdf`;
                         if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'summarizePdf', noteId: note.id, blockId: block.id });
                     }
                 }
-            }
-
-            // Task: Generate Title
-            const hasMeaningfulContent = note.content.some(b => (b.content.text || '').length > 10 || b.content.dbKey || b.content.url);
-            if (note.title === 'Untitled Note' && hasMeaningfulContent && !note.titleIsGenerating && !note.titleError) {
-                const taskId = `${note.id}-note-generateTitle`;
-                if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'generateTitle', noteId: note.id });
-            }
-
-            // Task: Generate Tags
-            if (!note.tags && !note.tagsAreGenerating && !note.tagsError && getNoteContentAsStringForTitle(note).trim().length > 20) {
-                const taskId = `${note.id}-note-generateTags`;
-                if (!existingTaskIds.has(taskId)) newTasks.push({ id: taskId, type: 'generateTags', noteId: note.id });
+                
+                // Task: Summarize YouTube Embed (no retry logic specified for these)
+                if (block.type === ContentBlockType.EMBED && block.content.url && (block.content.url.includes('youtube.com') || block.content.url.includes('youtu.be'))) {
+                  if (!block.content.summary && !block.content.isGeneratingSummary && !block.content.summaryError) {
+                      const taskId = `${note.id}-${block.id}-summarizeYouTubeEmbed`;
+                      if (!existingTaskIds.has(taskId)) {
+                          newTasks.push({ id: taskId, type: 'summarizeYouTubeEmbed', noteId: note.id, blockId: block.id });
+                      }
+                  }
+                }
             }
         }
 
         if (newTasks.length > 0) {
             setTaskQueue(currentQueue => [...currentQueue, ...newTasks]);
         }
-    }, [notes, taskQueue]);
+    }, [notes, taskQueue, setTaskQueue]);
 
     // Effect 2: Process the task queue
     useEffect(() => {
@@ -385,7 +434,7 @@ function App() {
                     case 'summarizePdf':
                         if (block && block.content.dbKey) {
                             const isImage = task.type === 'generateImageDescription';
-                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, [isImage ? 'isGeneratingDescription' : 'isGeneratingSummary']: true } } : b) } : n));
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, [isImage ? 'isGeneratingDescription' : 'isGeneratingSummary']: true, [isImage ? 'descriptionError' : 'summaryError']: null } } : b) } : n));
                             const media = await getMedia(block.content.dbKey);
                             if (media?.url) {
                                 let result = '';
@@ -407,9 +456,9 @@ function App() {
                         const titleContext = getNoteContentAsStringForTitle(note);
                         if(titleContext.trim().length > 15) {
                             const newTitle = await generateTitle(titleContext, note.people || []);
-                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id && n.title === 'Untitled Note' ? { ...n, title: newTitle, titleIsGenerating: false } : (n.id === note.id ? { ...n, titleIsGenerating: false } : n)));
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, title: newTitle, titleIsGenerating: false } : n ));
                         } else {
-                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false } : n));
+                             setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, titleIsGenerating: false } : n));
                         }
                         break;
                     
@@ -418,6 +467,14 @@ function App() {
                         const tagsContext = getNoteContentAsStringForTitle(note);
                         const newTags = await generateTagsForNote(tagsContext);
                         setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, tags: newTags, tagsAreGenerating: false } : n ));
+                        break;
+                    
+                    case 'summarizeYouTubeEmbed':
+                        if (block && block.content.url) {
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, isGeneratingSummary: true, summaryError: null } } : b) } : n));
+                            const summary = await generateYouTubeSummaryFromTranscript(block.content.url);
+                            setNotes(currentNotes => currentNotes.map(n => n.id === note.id ? { ...n, content: n.content.map(b => b.id === block.id ? { ...b, content: { ...b.content, summary, isGeneratingSummary: false } } : b) } : n));
+                        }
                         break;
                 }
             } catch (error: any) {
@@ -437,7 +494,7 @@ function App() {
                                 let updatedBlock = { ...b };
                                 if (task.type === 'recognizeFaces') updatedBlock.content = { ...b.content, isRecognizingFaces: false, faceRecognitionError: errorMessage };
                                 if (task.type === 'generateImageDescription') updatedBlock.content = { ...b.content, isGeneratingDescription: false, descriptionError: errorMessage };
-                                if (['summarizeVideo', 'summarizeAudio', 'summarizePdf'].includes(task.type)) updatedBlock.content = { ...b.content, isGeneratingSummary: false, summaryError: errorMessage };
+                                if (['summarizeVideo', 'summarizeAudio', 'summarizePdf', 'summarizeYouTubeEmbed'].includes(task.type)) updatedBlock.content = { ...b.content, isGeneratingSummary: false, summaryError: errorMessage };
                                 return updatedBlock;
                             });
                         }
@@ -451,7 +508,7 @@ function App() {
         };
 
         runTask();
-    }, [taskQueue, isTaskRunning, notes]);
+    }, [taskQueue, isTaskRunning, notes, setNotes, setTaskQueue]);
     // --- End of Background Task Manager ---
 
     useEffect(() => {
@@ -521,76 +578,126 @@ function App() {
     );
   };
 
-  const handleDeleteNote = async (noteId: string) => {
-    const noteToDelete = notes.find(note => note.id === noteId);
-    if (noteToDelete) {
-        for (const block of noteToDelete.content) {
-            if (block.content.dbKey) {
-                try {
-                    await deleteMedia(block.content.dbKey);
-                } catch (error) {
-                    console.error(`Failed to delete media for block ${block.id}:`, error);
-                }
-            }
-        }
-    }
-    
-    const noteIsActive = activeNoteId === noteId;
-    
-    setNotes(currentNotes => currentNotes.filter(note => note.id !== noteId));
-
-    if (noteIsActive) {
-        setActiveNoteId(null);
-        setCurrentView(previousView);
-    }
-  };
-
-  const handleCloseNote = () => {
-    if (activeNoteId) {
-        const noteToClose = notes.find(n => n.id === activeNoteId);
-
-        if (noteToClose) {
-            const isTitleEmpty = noteToClose.title === 'Untitled Note';
-            const isContentEmpty = 
-                noteToClose.content.length === 0 || 
-                (noteToClose.content.length === 1 &&
-                 noteToClose.content[0].type === ContentBlockType.TEXT &&
-                 !noteToClose.content[0].content.text?.trim());
-            const hasNoTags = !noteToClose.tags || noteToClose.tags.length === 0;
-            const hasNoPeople = !noteToClose.people || noteToClose.people.length === 0;
-
-            const isProcessing = noteToClose.titleIsGenerating ||
-                                 noteToClose.tagsAreGenerating ||
-                                 noteToClose.isAiChecklistGenerating ||
-                                 noteToClose.content.some(b => 
-                                     b.content.isGeneratingDescription ||
-                                     b.content.isGeneratingSummary ||
-                                     b.content.isRecognizingFaces
-                                 );
-
-            if (isTitleEmpty && isContentEmpty && hasNoTags && hasNoPeople && !isProcessing) {
-                handleDeleteNote(noteToClose.id);
-                return;
-            }
-        }
-    }
-
-    setActiveNoteId(null);
-    setCurrentView(previousView);
-  };
-
-  const handleSelectNote = (id: string) => {
-    if (currentView !== 'chat' && currentView !== 'note') {
-        setPreviousView(currentView as 'dashboard' | 'library' | 'media' | 'settings');
-    }
-    setActiveNoteId(id);
-    setCurrentView('note');
-  };
-
-  const handleSetView = (view: 'dashboard' | 'chat' | 'library' | 'media' | 'settings') => {
+  const handleSetView = useCallback((view: 'dashboard' | 'chat' | 'library' | 'media' | 'settings') => {
+      if (view === 'chat') {
+        setChatMessages([]);
+      }
       setCurrentView(view);
       setActiveNoteId(null);
-  }
+  }, []);
+
+  const handleDeleteNote = useCallback((noteId: string) => {
+    // Use a functional update to get the most recent state and avoid race conditions.
+    setNotes(currentNotes => {
+      const noteToDelete = currentNotes.find(note => note.id === noteId);
+      if (noteToDelete) {
+        // Fire off media deletions in the background. No need to await them.
+        // The UI update should be immediate.
+        for (const block of noteToDelete.content) {
+          if (block.content.dbKey) {
+            deleteMedia(block.content.dbKey).catch(error => {
+              console.error(`Failed to delete media for block ${block.id} in background:`, error);
+            });
+          }
+        }
+      }
+      // Return the new notes array immediately.
+      return currentNotes.filter(note => note.id !== noteId);
+    });
+
+    const noteIsActive = activeNoteId === noteId;
+    if (noteIsActive) {
+      setActiveNoteId(null);
+      setCurrentView(previousView);
+    }
+  }, [activeNoteId, previousView, setNotes]);
+
+  const handleCloseNote = useCallback(() => {
+    const noteToClose = notes.find(n => n.id === activeNoteId);
+
+    if (noteToClose) {
+        // Part 1: Empty Note Cleanup
+        const isTitleEmpty = noteToClose.title === 'Untitled Note';
+        const isContentEmpty = 
+            noteToClose.content.length === 0 || 
+            (noteToClose.content.length === 1 &&
+             noteToClose.content[0].type === ContentBlockType.TEXT &&
+             !noteToClose.content[0].content.text?.trim());
+        const hasNoTags = !noteToClose.tags || noteToClose.tags.length === 0;
+        const hasNoPeople = !noteToClose.people || noteToClose.people.length === 0;
+        const isProcessing = noteToClose.titleIsGenerating ||
+                             noteToClose.tagsAreGenerating ||
+                             noteToClose.isAiChecklistGenerating ||
+                             noteToClose.content.some(b => 
+                                 b.content.isGeneratingDescription ||
+                                 b.content.isGeneratingSummary ||
+                                 b.content.isRecognizingFaces
+                             );
+
+        if (isTitleEmpty && isContentEmpty && hasNoTags && hasNoPeople && !isProcessing) {
+            handleDeleteNote(noteToClose.id);
+            setInitialNoteOnOpen(null);
+            return;
+        }
+
+        // Part 2: Title & Tag Generation on Exit
+        const hasMeaningfulContent = getNoteContentAsStringForTitle(noteToClose).trim().length > 15;
+        // A note is considered "dirty" if it's new (initialNoteOnOpen is null) or if its content has changed.
+        const isDirty = !initialNoteOnOpen || JSON.stringify(noteToClose) !== JSON.stringify(initialNoteOnOpen);
+
+        if (hasMeaningfulContent && isDirty) {
+            // Queue Title Generation if the title is still the default.
+            if (isTitleEmpty && !noteToClose.titleIsGenerating) {
+                const titleTask: AITask = { id: `${noteToClose.id}-note-generateTitle`, type: 'generateTitle', noteId: noteToClose.id };
+                setTaskQueue(prevQueue => {
+                    const queueWithoutOldTask = prevQueue.filter(task => task.id !== titleTask.id);
+                    return [...queueWithoutOldTask, titleTask];
+                });
+            }
+            
+            // Queue Tag Generation if the note was edited. This will re-evaluate tags on every meaningful change.
+            if (!noteToClose.tagsAreGenerating) {
+                const tagsTask: AITask = { id: `${noteToClose.id}-note-generateTags`, type: 'generateTags', noteId: noteToClose.id };
+                setTaskQueue(prevQueue => {
+                    const queueWithoutOldTask = prevQueue.filter(task => task.id !== tagsTask.id);
+                    return [...queueWithoutOldTask, tagsTask];
+                });
+            }
+        }
+    }
+
+    // Part 3: Default Close Action
+    setActiveNoteId(null);
+    setInitialNoteOnOpen(null);
+    setCurrentView(previousView);
+  }, [notes, activeNoteId, initialNoteOnOpen, handleDeleteNote, previousView, setTaskQueue]);
+
+  const handleSelectNote = (id: string) => {
+    if (isConversationModeActive) {
+        // If coming from conversation mode, close the overlay first,
+        // then navigate. This prevents a race condition on mobile PWAs.
+        setIsConversationModeActive(false);
+        setTimeout(() => {
+            const noteToOpen = notes.find(n => n.id === id);
+            if (noteToOpen) {
+                setInitialNoteOnOpen(JSON.parse(JSON.stringify(noteToOpen)));
+            }
+            setActiveNoteId(id);
+            setCurrentView('note');
+        }, 50); // A small delay to allow the overlay to transition out
+    } else {
+        // Standard navigation
+        if (currentView !== 'chat' && currentView !== 'note') {
+            setPreviousView(currentView as 'dashboard' | 'library' | 'media' | 'settings');
+        }
+        const noteToOpen = notes.find(n => n.id === id);
+        if (noteToOpen) {
+            setInitialNoteOnOpen(JSON.parse(JSON.stringify(noteToOpen)));
+        }
+        setActiveNoteId(id);
+        setCurrentView('note');
+    }
+  };
   
   const handleAskAI = async (prompt: string) => {
     if (!activeNote) {
@@ -656,9 +763,21 @@ function App() {
       }
   };
 
+  const handleSwipeRight = useCallback(() => {
+    if (isConversationModeActive) return;
+
+    if (currentView === 'note') {
+      handleCloseNote();
+    } else if (currentView !== 'library') {
+      handleSetView('library');
+    }
+  }, [currentView, isConversationModeActive, handleCloseNote, handleSetView]);
+
+  const swipeState = useSwipeNavigation(handleSwipeRight);
+
   const renderView = () => {
     if (currentView === 'note' && activeNote) {
-      return <NoteEditor note={activeNote} updateNote={handleUpdateNote} deleteNote={handleDeleteNote} onClose={handleCloseNote} masterPeopleList={masterPeopleList} onAddPersonToMasterList={addPersonToMasterList} shortcutAction={shortcutAction} onShortcutHandled={() => setShortcutAction(null)} />;
+      return <NoteEditor note={activeNote} updateNote={handleUpdateNote} deleteNote={handleDeleteNote} onClose={handleCloseNote} shortcutAction={shortcutAction} onShortcutHandled={() => setShortcutAction(null)} onViewImage={(url, alt) => setViewingImage({ url, alt })} />;
     }
     switch (currentView) {
       case 'chat':
@@ -666,7 +785,7 @@ function App() {
       case 'library':
         return <LibraryView notes={notes} onSelectNote={handleSelectNote} masterPeopleList={masterPeopleList} onSetView={handleSetView as (view: 'settings') => void} onDeleteNote={handleDeleteNote} />;
       case 'media':
-        return <MediaView notes={notes} onSelectNote={handleSelectNote} />;
+        return <MediaView notes={notes} onSelectNote={handleSelectNote} masterPeopleList={masterPeopleList} />;
       case 'settings':
         return <SettingsView 
             masterPeopleList={masterPeopleList}
@@ -681,6 +800,11 @@ function App() {
             onSetSelectedVoice={setSelectedVoice}
             theme={theme}
             onSetTheme={setTheme}
+            userProfile={userProfile}
+            onSetUserProfile={setUserProfile}
+            dynamicCategories={dynamicCategories}
+            onGenerateCategories={handleGenerateCategories}
+            isGeneratingCategories={isGeneratingCategories}
         />;
       case 'dashboard':
       default:
@@ -690,6 +814,7 @@ function App() {
   
   return (
     <div className="h-screen w-screen bg-background text-foreground flex flex-col font-sans">
+      <SwipeIndicator {...swipeState} />
       {/* ⬇️ Top buffer band + subtle bottom hairline */}
       <div className="shrink-0 relative">
         <div className="h-6" /> {/* adjust to change buffer height */}
@@ -710,7 +835,10 @@ function App() {
             onShortcut={handleShortcut}
         />
       )}
-      {isConversationModeActive && <ConversationModeOverlay notes={notes} selectedVoice={selectedVoice} onClose={() => setIsConversationModeActive(false)} />}
+      {viewingImage && (
+        <ImageModal imageUrl={viewingImage.url} altText={viewingImage.alt} onClose={() => setViewingImage(null)} />
+      )}
+      {isConversationModeActive && <ConversationModeOverlay notes={notes} selectedVoice={selectedVoice} onClose={() => setIsConversationModeActive(false)} onNewNote={handleNewNote} onSelectNote={handleSelectNote} userProfile={userProfile} />}
     </div>
   );
 }

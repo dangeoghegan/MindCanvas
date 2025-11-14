@@ -1,11 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Note, ContentBlockType, ChecklistItem, VoiceName } from '../types';
-import { StopIcon, SpinnerIcon } from './icons';
-// FIX: The 'LiveSession' type is not exported from '@google/genai'. It has been removed.
-import { GoogleGenAI, LiveServerMessage, Modality, Blob } from '@google/genai';
+import { Note, ContentBlockType, ChecklistItem, VoiceName, UserProfile } from '../types';
+import { FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, Blob, Type } from '@google/genai';
 import { getConversationalSystemInstruction } from '../services/geminiService';
 
 // --- Start of Audio Helper Functions ---
+function encode(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 function decode(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -14,15 +21,6 @@ function decode(base64: string): Uint8Array {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes;
-}
-
-function encode(bytes: Uint8Array): string {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
 }
 
 async function decodeAudioData(
@@ -61,6 +59,9 @@ interface ConversationModeOverlayProps {
   notes: Note[];
   selectedVoice: VoiceName;
   onClose: () => void;
+  onNewNote: (options?: { open?: boolean; title?: string; content?: string }) => void;
+  onSelectNote: (noteId: string) => void;
+  userProfile: UserProfile;
 }
 
 const getNoteContentAsString = (note: Note): string => {
@@ -78,14 +79,32 @@ const getNoteContentAsString = (note: Note): string => {
     return `## Note: ${note.title || 'Untitled Note'}\n\n${contentText}`;
 };
 
+const makeNoteFunctionDeclaration: FunctionDeclaration = {
+  name: 'makeNote',
+  description: 'Creates a new note with a title and content. Use this when the user asks to "make a note about X", "create a note that...", or "note down that...". If the user just says "make a note", call this function without arguments.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      title: {
+        type: Type.STRING,
+        description: "A short, descriptive title for the note, inferred from the user's request. Defaults to 'Untitled Note' if not provided."
+      },
+      content: {
+        type: Type.STRING,
+        description: "The main content or body of the note, taken from the user's request."
+      }
+    },
+  },
+};
+
 type ConversationState = 'idle' | 'connecting' | 'active';
 type TranscriptionLogEntry = { id: string; role: 'user' | 'model'; text: string };
+const CONTEXT_CHAR_LIMIT = 32000;
 
-export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = ({ notes, selectedVoice, onClose }) => {
+export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = ({ notes, selectedVoice, onClose, onNewNote, onSelectNote, userProfile }) => {
   const [conversationState, setConversationState] = useState<ConversationState>('idle');
   const [liveTranscript, setLiveTranscript] = useState<TranscriptionLogEntry[]>([]);
 
-  // FIX: The 'LiveSession' type is deprecated. Using 'any' to allow for successful compilation while maintaining runtime functionality.
   const sessionPromiseRef = useRef<Promise<any> | null>(null);
   const audioResourcesRef = useRef<{
       stream: MediaStream | null, inputAudioContext: AudioContext | null, outputAudioContext: AudioContext | null,
@@ -93,12 +112,78 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
       playbackSources: Set<AudioBufferSourceNode>, nextStartTime: number,
   }>({ stream: null, inputAudioContext: null, outputAudioContext: null, scriptProcessor: null, sourceNode: null, outputGainNode: null, playbackSources: new Set(), nextStartTime: 0 });
   const transcriptRefs = useRef({ currentInput: '', currentOutput: '' });
+  const spiralsContainerRef = useRef<HTMLDivElement>(null);
+  const conversationAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const createSpiralPattern = () => {
+      const container = spiralsContainerRef.current;
+      if (!container) return;
+
+      const spiralContainer = document.createElement('div');
+      spiralContainer.className = 'spiral-container';
+      
+      const x = Math.random() * window.innerWidth;
+      const y = Math.random() * window.innerHeight;
+      spiralContainer.style.left = x + 'px';
+      spiralContainer.style.top = y + 'px';
+      
+      const particleCount = 20 + Math.floor(Math.random() * 25);
+      const maxRadius = 40 + Math.random() * 60;
+      const colors = ['bright-navy', 'denim', 'egyptian-blue', 'white'];
+      const sizes = ['tiny', 'small', 'medium'];
+      
+      for (let i = 0; i < particleCount; i++) {
+        const particle = document.createElement('div');
+        particle.className = 'spiral-particle';
+        
+        const angle = (i / particleCount) * Math.PI * 4;
+        const radius = (i / particleCount) * maxRadius;
+        const px = Math.cos(angle) * radius;
+        const py = Math.sin(angle) * radius;
+        
+        particle.style.left = px + 'px';
+        particle.style.top = py + 'px';
+        
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const size = sizes[Math.floor(Math.random() * sizes.length)];
+        particle.classList.add(color, size);
+        
+        const duration = 8 + Math.random() * 6;
+        const delay = (i / particleCount) * 2;
+        particle.style.animation = `spiral-develop ${duration}s ease-in-out ${delay}s`;
+        
+        spiralContainer.appendChild(particle);
+      }
+      
+      container.appendChild(spiralContainer);
+      
+      const maxDuration = 16000;
+      setTimeout(() => {
+        if (container.contains(spiralContainer)) {
+          container.removeChild(spiralContainer);
+        }
+      }, maxDuration);
+    };
+
+    for (let i = 0; i < 3; i++) {
+      setTimeout(createSpiralPattern, i * 3000);
+    }
+    const intervalId = setInterval(createSpiralPattern, 5000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (conversationAreaRef.current) {
+      conversationAreaRef.current.scrollTop = conversationAreaRef.current.scrollHeight;
+    }
+  }, [liveTranscript]);
 
   const stopConversation = async () => {
     if (sessionPromiseRef.current) {
         try {
             const session = await sessionPromiseRef.current;
-            session.close();
+            if (session) session.close();
         } catch (e) {
             console.warn("Error closing session", e);
         } finally {
@@ -110,8 +195,8 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
     playbackSources.forEach(source => { try { source.stop(); } catch(e){} });
     scriptProcessor?.disconnect();
     sourceNode?.disconnect();
-    if (inputAudioContext?.state !== 'closed') inputAudioContext.close();
-    if (outputAudioContext?.state !== 'closed') outputAudioContext.close();
+    if (inputAudioContext && inputAudioContext.state !== 'closed') inputAudioContext.close().catch(console.error);
+    if (outputAudioContext && outputAudioContext.state !== 'closed') outputAudioContext.close().catch(console.error);
     audioResourcesRef.current = { stream: null, inputAudioContext: null, outputAudioContext: null, scriptProcessor: null, sourceNode: null, outputGainNode: null, playbackSources: new Set(), nextStartTime: 0 };
     setConversationState('idle');
     onClose();
@@ -134,8 +219,11 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
           outputGainNode.connect(outputAudioContext.destination);
           audioResourcesRef.current.outputGainNode = outputGainNode;
           
-          const notesContext = notes.map(getNoteContentAsString).join('\n\n---\n\n');
-          const systemInstruction = getConversationalSystemInstruction(notesContext);
+          let notesContext = notes.map(getNoteContentAsString).join('\n\n---\n\n');
+          if (notesContext.length > CONTEXT_CHAR_LIMIT) {
+              notesContext = notesContext.substring(notesContext.length - CONTEXT_CHAR_LIMIT);
+          }
+          const systemInstruction = getConversationalSystemInstruction(notesContext, userProfile.name);
 
           sessionPromiseRef.current = ai.live.connect({
               model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -145,6 +233,7 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
                   inputAudioTranscription: {},
                   outputAudioTranscription: {},
                   systemInstruction,
+                  tools: [{ functionDeclarations: [makeNoteFunctionDeclaration] }],
               },
               callbacks: {
                   onopen: () => {
@@ -165,10 +254,28 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
                       scriptProcessor.connect(inputAudioContext.destination);
                   },
                   onmessage: async (message: LiveServerMessage) => {
-                      if (message.serverContent?.interrupted) {
-                          for (const source of audioResourcesRef.current.playbackSources) {
-                              try { source.stop(); } catch (e) {}
+                      if (message.toolCall) {
+                          for (const fc of message.toolCall.functionCalls) {
+                              if (fc.name === 'makeNote') {
+                                  const { title, content } = fc.args;
+                                  onNewNote({ open: false, title, content });
+                                  sessionPromiseRef.current?.then((session) => {
+                                    if (session) {
+                                      session.sendToolResponse({
+                                        functionResponses: {
+                                          id: fc.id,
+                                          name: fc.name,
+                                          response: { result: "Note has been successfully created." },
+                                        }
+                                      });
+                                    }
+                                  });
+                              }
                           }
+                      }
+
+                      if (message.serverContent?.interrupted) {
+                          for (const source of audioResourcesRef.current.playbackSources) { try { source.stop(); } catch (e) {} }
                           audioResourcesRef.current.playbackSources.clear();
                           audioResourcesRef.current.nextStartTime = 0;
                       }
@@ -178,9 +285,14 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
                           const { outputAudioContext, outputGainNode, playbackSources } = audioResourcesRef.current;
                           if (!outputAudioContext || !outputGainNode) return;
                           if (outputAudioContext.state === 'suspended') await outputAudioContext.resume();
-
+                          
+                          const isFirstChunk = playbackSources.size === 0;
                           let { nextStartTime } = audioResourcesRef.current;
                           nextStartTime = Math.max(nextStartTime, outputAudioContext.currentTime);
+
+                          if (isFirstChunk) {
+                            nextStartTime += 2.0; // Add 2-second delay
+                          }
 
                           const audioBuffer = await decodeAudioData(decode(audioData), outputAudioContext, 24000, 1);
                           const source = outputAudioContext.createBufferSource();
@@ -211,6 +323,12 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
                       }
                       
                       if (message.serverContent?.turnComplete) {
+                          const finalModelText = transcriptRefs.current.currentOutput.trim().toLowerCase();
+                          if (finalModelText === 'noted.') {
+                              setTimeout(() => {
+                                  stopConversation();
+                              }, 500);
+                          }
                           transcriptRefs.current = { currentInput: '', currentOutput: '' };
                       }
                   },
@@ -226,50 +344,98 @@ export const ConversationModeOverlay: React.FC<ConversationModeOverlayProps> = (
     };
     startConversation();
     return () => { stopConversation(); };
-  }, [notes, selectedVoice, onClose]);
+  }, [notes, selectedVoice, onClose, onNewNote, userProfile]);
+  
+  const getStatusText = () => {
+    switch (conversationState) {
+        case 'connecting': return 'Connecting...';
+        case 'active': return 'Recording in progress...';
+        default: return 'Idle';
+    }
+  };
+
+  const renderTranscriptWithLinks = (text: string) => {
+    const relevantNotes = notes.slice(0, 200);
+    const escapedTitles = relevantNotes
+      .map(note => (note.title || 'Untitled Note').trim())
+      .filter(title => title.length > 2)
+      .map(title => title.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+
+    if (escapedTitles.length === 0) {
+      return <div className="message-bubble">{text}</div>;
+    }
+
+    const regex = new RegExp(`(${escapedTitles.join('|')})`, 'gi');
+    const parts = text.split(regex);
+
+    return (
+      <div className="message-bubble">
+        {parts.map((part, index) => {
+          const matchedNote = relevantNotes.find(note => (note.title || 'Untitled Note').toLowerCase() === part.toLowerCase());
+          if (matchedNote) {
+            return (
+              <button
+                key={`${matchedNote.id}-${index}`}
+                className="font-semibold underline"
+                style={{ color: '#0C3BAA' }}
+                onClick={() => onSelectNote(matchedNote.id)}
+              >
+                {part}
+              </button>
+            );
+          }
+          return <React.Fragment key={index}>{part}</React.Fragment>;
+        })}
+      </div>
+    );
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-end p-4 view-container-animation">
-        <div className="w-full max-w-3xl flex-1 flex flex-col justify-end overflow-hidden pb-4">
-            <div className="overflow-y-auto">
-                {liveTranscript.length === 0 && conversationState === 'active' && (
-                    <p className="text-center text-4xl font-light text-muted-foreground animate-pulse">Listening...</p>
-                )}
-                {liveTranscript.map((log) => (
-                    <div key={log.id} className={`text-left text-2xl mb-4 font-light animate-fade-in ${log.role === 'user' ? 'text-foreground' : 'text-primary'}`}>
-                        <span className="font-semibold">{log.role === 'user' ? 'You: ' : 'AI: '}</span>
-                        <span>{log.text}</span>
-                    </div>
-                ))}
-            </div>
+    <div className="sand-spirals-overlay">
+      <div className="spirals-background" ref={spiralsContainerRef}></div>
+      <div className="container">
+        <div className="header">
+          <h1>Conversation Mode</h1>
         </div>
-        
-        <div className="relative flex items-center justify-center w-full h-40">
-            {conversationState === 'active' && (
-                <div className="absolute w-40 h-40">
-                    <div className="ripple-1 w-full h-full"></div>
-                    <div className="ripple-2 w-full h-full"></div>
-                    <div className="ripple-3 w-full h-full"></div>
+
+        <div className="conversation-area" ref={conversationAreaRef}>
+          <div className="conversation-content">
+            {liveTranscript.length === 0 && conversationState === 'active' && (
+                <div className="message ai">
+                    <div className="message-label">AI</div>
+                    <div className="message-bubble">
+                        I'm listening. You can ask me questions about your notes or ask me to create a new one.
+                    </div>
                 </div>
             )}
-            <button
-                onClick={stopConversation}
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-destructive text-destructive-foreground z-10 transform transition-transform hover:scale-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-offset-black focus-visible:ring-destructive/50"
-                aria-label="Stop conversation"
-            >
-                <StopIcon className="w-8 h-8" />
-            </button>
+            {liveTranscript.map((log) => (
+              <div key={log.id} className={`message ${log.role === 'user' ? 'user' : 'ai'}`}>
+                <div className="message-label">{log.role === 'user' ? 'You' : 'AI'}</div>
+                {log.role === 'user' 
+                    ? <div className="message-bubble">{log.text}</div>
+                    : renderTranscriptWithLinks(log.text)
+                }
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="h-12" />
 
-        {conversationState === 'connecting' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                    <SpinnerIcon className="w-12 h-12 text-foreground mx-auto mb-4" />
-                    <p className="text-xl text-muted-foreground">Connecting audio...</p>
-                </div>
+        <div className="controls-container">
+          <div className="controls">
+            <div className="audio-visualizer">
+              <div className="bar"></div>
+              <div className="bar"></div>
+              <div className="bar"></div>
+              <div className="bar"></div>
+              <div className="bar"></div>
             </div>
-        )}
+            <button className="record-button" onClick={stopConversation} aria-label="Stop conversation">
+              <div className="stop-icon"></div>
+            </button>
+            <div className="status-text">{getStatusText()}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

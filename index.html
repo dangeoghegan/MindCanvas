@@ -4,10 +4,15 @@
     <meta charset="UTF-8" />
     <link rel="icon" href="/icons/icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Granula</title>
     <link rel="manifest" href="/manifest.json?v=1" />
     <meta name="theme-color" content="hsl(var(--background))" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
   <script type="importmap">
 {
@@ -15,7 +20,8 @@
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.25.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.25.0",
+    "youtube-transcript": "https://aistudiocdn.com/youtube-transcript@^1.2.1"
   }
 }
 </script>
@@ -24,6 +30,10 @@
     darkMode: ['class', '[data-theme="dark"]'],
     theme: {
       extend: {
+        fontFamily: {
+          sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'sans-serif'],
+          grotesk: ['Space Grotesk', 'sans-serif']
+        },
         colors: {
           border: 'hsl(var(--border))',
           input: 'hsl(var(--input))',

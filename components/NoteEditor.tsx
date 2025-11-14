@@ -2,23 +2,23 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Note, ContentBlock, ContentBlockType, ChecklistItem } from '../types';
 // FIX: Changed import to a default import to match the export type in ContentBlockComponent.
 import ContentBlockComponent from './ContentBlockComponent';
-import { SparklesIcon, MicrophoneIcon, StopIcon, PaperClipIcon, ArrowLeftIcon, TrashIcon, TagIcon, UserIcon, XMarkIcon, CameraIcon, PhotoIcon, VideoCameraIcon, LinkIcon } from './icons';
+import { SparklesIcon, MicrophoneIcon, StopIcon, AttachFileIcon, ArrowLeftIcon, TrashIcon, XMarkIcon, CameraIcon, PhotoIcon, VideoCameraIcon, LinkIcon, ShareIcon, CalendarDaysIcon } from './icons';
 // FIX: Renamed function to match export from geminiService.
 import { generateChecklistFromAudio, answerQuestionAboutImage } from '../services/geminiService';
 // FIX: Imported 'getMedia' to resolve 'Cannot find name' error.
 import { saveMedia, deleteMedia, getMedia } from '../services/dbService';
 import { DictateButton } from './DictateButton';
 import { useWhisper } from '../hooks/useWhisper';
+import { shareNote } from '../services/shareService';
 
 interface NoteEditorProps {
   note: Note;
   updateNote: (updatedNote: Note) => void;
   deleteNote: (noteId: string) => void;
   onClose: () => void;
-  masterPeopleList: string[];
-  onAddPersonToMasterList: (name: string) => void;
-  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' } | null;
+  shortcutAction: { noteId: string; action: 'photo' | 'video' | 'audio' | 'dictate' | 'embed' | 'ai-checklist' | 'camera-menu' } | null;
   onShortcutHandled: () => void;
+  onViewImage: (url: string, alt: string) => void;
 }
 
 const fileToDataUrl = (file: File): Promise<string> => {
@@ -30,44 +30,66 @@ const fileToDataUrl = (file: File): Promise<string> => {
     });
 };
 
-const getExifDateTime = (file: File): Promise<string | null> => {
+const dmsToDecimal = (dms: number[], ref: string): number => {
+    if (!dms || dms.length !== 3) return 0;
+    const [degrees, minutes, seconds] = dms;
+    let dd = degrees + minutes / 60 + seconds / 3600;
+    if (ref === 'S' || ref === 'W') {
+        dd *= -1;
+    }
+    return dd;
+};
+
+const getExifData = (file: File): Promise<{ photoTakenAt: string | null; location: { lat: number; lon: number } | null }> => {
     return new Promise((resolve) => {
         const EXIF = (window as any).EXIF;
         if (!EXIF) {
             console.warn("EXIF.js library not found.");
-            return resolve(null);
+            return resolve({ photoTakenAt: null, location: null });
         }
 
         EXIF.getData(file, function(this: any) {
             const dateTime = EXIF.getTag(this, "DateTimeOriginal");
+            let isoDate: string | null = null;
             if (dateTime) {
                 try {
                     const parts = dateTime.split(' ');
                     const dateParts = parts[0].split(':');
                     const timeParts = parts.length > 1 ? parts[1].split(':') : ['00', '00', '00'];
-                    
-                    const isoDate = new Date(
-                        parseInt(dateParts[0], 10),
-                        parseInt(dateParts[1], 10) - 1,
-                        parseInt(dateParts[2], 10),
-                        parseInt(timeParts[0], 10),
-                        parseInt(timeParts[1], 10),
-                        parseInt(timeParts[2], 10)
+                    isoDate = new Date(
+                        parseInt(dateParts[0], 10), parseInt(dateParts[1], 10) - 1, parseInt(dateParts[2], 10),
+                        parseInt(timeParts[0], 10), parseInt(timeParts[1], 10), parseInt(timeParts[2], 10)
                     ).toISOString();
-                    resolve(isoDate);
                 } catch(e) {
                     console.error("Error parsing EXIF date:", e);
-                    resolve(null);
                 }
-            } else {
-                resolve(null);
             }
+
+            const lat = EXIF.getTag(this, "GPSLatitude");
+            const lon = EXIF.getTag(this, "GPSLongitude");
+            const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+            const lonRef = EXIF.getTag(this, "GPSLongitudeRef");
+            let location: { lat: number; lon: number } | null = null;
+
+            if (lat && lon && latRef && lonRef) {
+                try {
+                    const latitude = dmsToDecimal(lat, latRef);
+                    const longitude = dmsToDecimal(lon, lonRef);
+                    if (latitude !== 0 || longitude !== 0) {
+                        location = { lat: latitude, lon: longitude };
+                    }
+                } catch (e) {
+                    console.error("Error parsing EXIF GPS data:", e);
+                }
+            }
+            
+            resolve({ photoTakenAt: isoDate, location });
         });
     });
 };
 
 
-const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, onClose, masterPeopleList, onAddPersonToMasterList, shortcutAction, onShortcutHandled }) => {
+const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, onClose, shortcutAction, onShortcutHandled, onViewImage }) => {
   const [isAiChecklistLoading, setIsAiChecklistLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -77,10 +99,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
 
   const [askingImageAIBlockId, setAskingImageAIBlockId] = useState<string | null>(null);
 
-  const [personInput, setPersonInput] = useState('');
-  const [showPersonSuggestions, setShowPersonSuggestions] = useState(false);
-  const personInputRef = useRef<HTMLInputElement>(null);
-
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<number | null>(null);
@@ -88,6 +106,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   const genericFileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const activeInputRef = useRef<{ blockId: string; itemId?: string; element: HTMLTextAreaElement | HTMLInputElement } | null>(null);
 
   const noteRef = useRef(note);
@@ -96,19 +115,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
   }, [note]);
 
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
-  const cameraMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-        if (cameraMenuRef.current && !cameraMenuRef.current.contains(event.target as Node)) {
-            setIsCameraMenuOpen(false);
-        }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -187,6 +193,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
             break;
           case 'video':
             videoInputRef.current?.click();
+            break;
+          case 'camera-menu':
+            setIsCameraMenuOpen(true);
             break;
           case 'dictate':
             handleToggleDictation();
@@ -398,9 +407,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
         if (fileType.startsWith('image/jpeg') || fileType.startsWith('image/tiff')) {
             blockType = ContentBlockType.IMAGE;
             try {
-                const photoTakenAt = await getExifDateTime(file);
+                const { photoTakenAt, location } = await getExifData(file);
                 if (photoTakenAt) {
                     content.photoTakenAt = photoTakenAt;
+                }
+                if (location) {
+                    content.location = location;
                 }
             } catch (exifError) {
                 console.warn("Could not read EXIF data for image:", exifError);
@@ -530,57 +542,98 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
     }
   };
 
-  const handleAddPerson = (personName: string) => {
-    const name = personName.trim();
-    if (name && !(note.people || []).includes(name)) {
-        const updatedPeople = [...(note.people || []), name];
-        updateNote({ ...note, people: updatedPeople });
-        onAddPersonToMasterList(name);
-    }
-    setPersonInput('');
-    setShowPersonSuggestions(false);
-  };
+    const handleDateSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const dateValue = e.target.value; // Format: "YYYY-MM-DD"
+        if (!dateValue) return;
 
-  const handleRemovePerson = (personToRemove: string) => {
-      const updatedPeople = (note.people || []).filter(p => p !== personToRemove);
-      updateNote({ ...note, people: updatedPeople });
-  };
+        // Create a date object respecting the local timezone from the YYYY-MM-DD string
+        const date = new Date(dateValue + 'T00:00:00');
 
-  const handlePersonInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      setPersonInput(e.target.value);
-      setShowPersonSuggestions(true);
-  };
+        const dateString = date.toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        });
 
-  const handlePersonInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter' && personInput) {
-          e.preventDefault();
-          handleAddPerson(personInput);
-      }
-  };
+        if (activeInputRef.current) {
+            const { element, blockId, itemId } = activeInputRef.current;
+            const { value, selectionStart, selectionEnd } = element;
+            if (selectionStart === null) return;
+            
+            const end = selectionEnd === null ? selectionStart : selectionEnd;
 
-  const filteredPersonSuggestions = useMemo(() => {
-    const availablePeople = masterPeopleList.filter(
-        p => !(note.people || []).includes(p)
-    );
-    if (!personInput) {
-        return availablePeople;
-    }
-    return availablePeople.filter(
-        p => p.toLowerCase().includes(personInput.toLowerCase())
-    );
-  }, [personInput, masterPeopleList, note.people]);
+            const newValue = value.substring(0, selectionStart) + dateString + value.substring(end);
+            
+            const newContent = noteRef.current.content.map(b => {
+                if (b.id === blockId) {
+                    if (b.type === ContentBlockType.CHECKLIST && itemId) {
+                        const newItems = b.content.items?.map(i => i.id === itemId ? { ...i, text: newValue } : i);
+                        return { ...b, content: { ...b.content, items: newItems } };
+                    } else {
+                        return { ...b, content: { ...b.content, text: newValue } };
+                    }
+                }
+                return b;
+            });
+            updateNote({ ...noteRef.current, content: newContent });
+
+            setTimeout(() => {
+                const newCursorPos = selectionStart + dateString.length;
+                if (document.body.contains(element)) {
+                    element.focus();
+                    element.setSelectionRange(newCursorPos, newCursorPos);
+                }
+            }, 0);
+        } else {
+            addBlock(ContentBlockType.TEXT, { text: dateString });
+        }
+    };
+
+    const handleDateButtonClick = () => {
+        if (dateInputRef.current) {
+            try {
+                dateInputRef.current.showPicker();
+            } catch (error) {
+                console.warn("showPicker() is not supported, falling back to click().", error);
+                dateInputRef.current.click();
+            }
+        }
+    };
 
   const isAiBusy = isAiChecklistLoading || askingImageAIBlockId !== null || note.titleIsGenerating || note.tagsAreGenerating || note.isAiChecklistGenerating;
+
+  const handleShareNote = async () => {
+    const result = await shareNote(note);
+    if (result && !result.success) {
+        if (result.error && result.error.message.includes('not supported')) {
+            alert('Sharing is not available on this browser.');
+        } else if (result.error) {
+            console.error('Sharing failed:', result.error);
+            alert('An error occurred while trying to share the note.');
+        }
+    }
+  };
+
+  const handleDeleteNote = () => {
+    if (window.confirm(`Are you sure you want to delete "${note.title || 'Untitled Note'}"? This action cannot be undone.`)) {
+        deleteNote(note.id);
+    }
+  };
 
   return (
     <div className="flex-1 bg-background text-foreground flex flex-col">
        <div className="sticky top-0 z-10 bg-background py-3 px-6 border-b border-border flex items-center justify-between">
-            <button onClick={onClose} className="p-2 rounded-full hover:bg-secondary">
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-secondary" aria-label="Close note">
                 <ArrowLeftIcon />
             </button>
-            <button onClick={() => deleteNote(note.id)} className="p-2 rounded-full hover:bg-secondary text-muted-foreground hover:text-destructive">
-                <TrashIcon />
-            </button>
+            <div className="flex items-center gap-1">
+                <button onClick={handleShareNote} className="p-2 rounded-full hover:bg-secondary text-muted-foreground hover:text-foreground" aria-label="Share note">
+                    <ShareIcon className="w-5 h-5" />
+                </button>
+                <button onClick={handleDeleteNote} className="p-2 rounded-full hover:bg-secondary text-muted-foreground hover:text-destructive" aria-label="Delete note">
+                    <TrashIcon />
+                </button>
+            </div>
         </div>
       <div className="flex-1 overflow-y-auto p-6 md:px-12">
         <div className="max-w-3xl mx-auto">
@@ -590,7 +643,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                   value={note.title}
                   onChange={handleTitleChange}
                   placeholder="Untitled Note"
-                  className="text-3xl font-bold bg-secondary rounded-lg px-3 py-2 focus:outline-none w-full text-foreground placeholder-muted-foreground"
+                  className="text-3xl font-bold bg-transparent focus:outline-none w-full text-foreground placeholder-muted-foreground"
                 />
                 {note.titleIsGenerating && (
                     <div className="absolute right-2 top-1/2 -translate-y-1/2" title="AI is generating a title for this note">
@@ -616,6 +669,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     onAskAIAboutImage={handleAskAIAboutImage}
                     askingImageAIBlockId={askingImageAIBlockId}
                     onInputFocus={handleInputFocus}
+                    onViewImage={onViewImage}
                 />
               ))}
             </div>
@@ -623,76 +677,15 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
             <input type="file" ref={photoInputRef} onChange={handleFileSelect} className="hidden" accept="image/*" capture />
             <input type="file" ref={videoInputRef} onChange={handleFileSelect} className="hidden" accept="video/*" capture />
             <input type="file" ref={genericFileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,text/plain" multiple />
+            <input
+              type="date"
+              ref={dateInputRef}
+              onChange={handleDateSelected}
+              className="hidden"
+              defaultValue={new Date().toISOString().split('T')[0]}
+            />
             
             <div className="mt-8 pt-6 border-t border-border space-y-6">
-                {(note.tagsAreGenerating || (note.tags && note.tags.length > 0) || note.tagsError) && (
-                    <div className="flex items-start gap-3 flex-wrap">
-                        <TagIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1.5" />
-                        <div className="flex flex-wrap gap-2">
-                          {note.tagsAreGenerating && (
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground italic">
-                                  <SparklesIcon className="w-4 h-4 animate-pulse" />
-                                  <span>AI is generating tags...</span>
-                              </div>
-                          )}
-                          {note.tagsError && (
-                              <div className="flex items-center gap-2 text-sm text-destructive italic" title={note.tagsError}>
-                                  <span>Error generating tags.</span>
-                              </div>
-                          )}
-                          {note.tags && note.tags.map(tag => (
-                              <span key={tag} className="bg-secondary text-secondary-foreground text-xs font-medium px-2.5 py-1 rounded-full">
-                                  #{tag}
-                              </span>
-                          ))}
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex items-start gap-3 flex-wrap">
-                    <UserIcon className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-1.5" />
-                    <div className="flex-1 relative">
-                        <div className="flex flex-wrap gap-2 items-center">
-                            {(note.people || []).map(person => (
-                                <span key={person} className="flex items-center gap-1.5 bg-success/10 text-secondary-foreground text-xs font-bold pl-2.5 pr-1.5 py-1 rounded-full">
-                                    {person}
-                                    <button onClick={() => handleRemovePerson(person)} className="hover:bg-success/20 rounded-full p-0.5">
-                                        <XMarkIcon className="w-3 h-3" />
-                                    </button>
-                                </span>
-                            ))}
-                            <div className="relative flex-1 min-w-[120px]">
-                                <input
-                                    ref={personInputRef}
-                                    type="text"
-                                    value={personInput}
-                                    onChange={handlePersonInputChange}
-                                    onKeyDown={handlePersonInputKeyDown}
-                                    onFocus={() => setShowPersonSuggestions(true)}
-                                    onBlur={() => setTimeout(() => setShowPersonSuggestions(false), 200)}
-                                    placeholder="Add person..."
-                                    className="bg-secondary rounded-md text-sm placeholder-muted-foreground focus:outline-none py-1 px-2"
-                                />
-                                {showPersonSuggestions && filteredPersonSuggestions.length > 0 && (
-                                    <div className="absolute z-10 bottom-full mb-2 w-full bg-popover border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                                        <ul className="py-1">
-                                            {filteredPersonSuggestions.map(suggestion => (
-                                                <li
-                                                    key={suggestion}
-                                                    onMouseDown={() => handleAddPerson(suggestion)}
-                                                    className="text-popover-foreground cursor-pointer select-none relative py-2 px-3 hover:bg-accent"
-                                                >
-                                                    {suggestion}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
                 <div className="flex items-center gap-2 text-muted-foreground flex-wrap">
                    <span className="text-sm font-semibold uppercase tracking-wider">ADD:</span>
                    <button onClick={() => addBlock(ContentBlockType.HEADER)} className="text-sm px-3 py-1 rounded-md hover:bg-secondary hover:text-secondary-foreground">Header</button>
@@ -705,7 +698,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                     <button 
                       onClick={isRecordingForChecklist ? handleStopChecklistRecording : handleStartChecklistRecording} 
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${isRecordingForChecklist ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90 text-primary-foreground'}`}
-                      disabled={isRecording || isDictating || isAiBusy}
+                      disabled={isRecording || isDictating || (isAiBusy && !isRecordingForChecklist)}
                     >
                         {isRecordingForChecklist ? (
                             <>
@@ -742,52 +735,74 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ note, updateNote, deleteNote, o
                         onClick={handleToggleDictation}
                         disabled={isRecording || isRecordingForChecklist || isAiBusy} 
                     />
-                    <div className="relative" ref={cameraMenuRef}>
-                        <button
-                            onClick={() => setIsCameraMenuOpen(prev => !prev)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-secondary hover:bg-accent text-secondary-foreground"
-                            disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
-                        >
-                            <CameraIcon className="w-5 h-5" />
-                            <span>Camera</span>
-                        </button>
-                        {isCameraMenuOpen && (
-                            <div className="absolute bottom-full mb-2 w-48 bg-popover border border-border rounded-lg shadow-lg py-2 animate-fade-in">
-                                <button
-                                    onClick={() => {
-                                        photoInputRef.current?.click();
-                                        setIsCameraMenuOpen(false);
-                                    }}
-                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-popover-foreground hover:bg-accent"
-                                >
-                                    <PhotoIcon className="w-5 h-5" />
-                                    <span>Take Photo</span>
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        videoInputRef.current?.click();
-                                        setIsCameraMenuOpen(false);
-                                    }}
-                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-popover-foreground hover:bg-accent"
-                                >
-                                    <VideoCameraIcon className="w-5 h-5" />
-                                    <span>Record Video</span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                    <button
+                        onClick={() => setIsCameraMenuOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-secondary hover:bg-accent text-secondary-foreground"
+                        disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
+                    >
+                        <CameraIcon className="w-5 h-5" />
+                        <span>Camera</span>
+                    </button>
                     <button 
                         onClick={handleGenericFileClick}
                         className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-secondary hover:bg-accent text-secondary-foreground"
                         disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
                     >
-                        <PaperClipIcon className="w-5 h-5" />
+                        <AttachFileIcon className="w-5 h-5" />
                         <span>Attach File</span>
+                    </button>
+                    <button 
+                        onClick={handleDateButtonClick}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors bg-secondary hover:bg-accent text-secondary-foreground"
+                        disabled={isAiBusy || isRecording || isRecordingForChecklist || isDictating}
+                    >
+                        <CalendarDaysIcon className="w-5 h-5" />
+                        <span>Date</span>
                     </button>
                 </div>
             </div>
         </div>
       </div>
+      {isCameraMenuOpen && (
+        <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setIsCameraMenuOpen(false)}
+        >
+            <div
+                className="bg-popover rounded-2xl shadow-xl p-6 w-full max-w-xs border border-border"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-lg font-semibold text-popover-foreground">Capture Media</h3>
+                    <button onClick={() => setIsCameraMenuOpen(false)} className="p-1 rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                        <XMarkIcon className="w-5 h-5" />
+                    </button>
+                </div>
+                <div className="space-y-4">
+                    <button
+                        onClick={() => {
+                            photoInputRef.current?.click();
+                            setIsCameraMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-4 p-4 text-lg text-popover-foreground hover:bg-accent rounded-xl transition-colors"
+                    >
+                        <PhotoIcon className="w-8 h-8 text-primary" />
+                        <span className="font-medium">Take Photo</span>
+                    </button>
+                    <button
+                        onClick={() => {
+                            videoInputRef.current?.click();
+                            setIsCameraMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-4 p-4 text-lg text-popover-foreground hover:bg-accent rounded-xl transition-colors"
+                    >
+                        <VideoCameraIcon className="w-8 h-8 text-primary" />
+                        <span className="font-medium">Record Video</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

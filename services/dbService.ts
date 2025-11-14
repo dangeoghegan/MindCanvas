@@ -1,38 +1,48 @@
 // services/dbService.ts
-let db: IDBDatabase;
+let dbPromise: Promise<IDBDatabase> | null = null;
 
 const DB_NAME = 'GranulaDB';
 const STORE_NAME = 'mediaFiles';
 const DB_VERSION = 1;
 
-export const initDB = (): Promise<boolean> => {
-  return new Promise((resolve, reject) => {
-    if (db) return resolve(true);
+const getDB = (): Promise<IDBDatabase> => {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onerror = () => {
+        console.error('IndexedDB error:', request.error);
+        reject(request.error);
+      };
 
-    request.onerror = () => {
-      console.error('IndexedDB error:', request.error);
-      reject(false);
-    };
+      request.onsuccess = () => {
+        resolve(request.result);
+      };
 
-    request.onsuccess = () => {
-      db = request.result;
-      resolve(true);
-    };
-
-    request.onupgradeneeded = (event) => {
-      const dbInstance = (event.target as IDBOpenDBRequest).result;
-      if (!dbInstance.objectStoreNames.contains(STORE_NAME)) {
-        dbInstance.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-    };
-  });
+      request.onupgradeneeded = (event) => {
+        const dbInstance = (event.target as IDBOpenDBRequest).result;
+        if (!dbInstance.objectStoreNames.contains(STORE_NAME)) {
+          dbInstance.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+      };
+    });
+  }
+  return dbPromise;
 };
 
-export const saveMedia = (id: string, data: { url: string, mimeType: string, name?: string }): Promise<void> => {
+export const initDB = async (): Promise<boolean> => {
+  try {
+    await getDB();
+    return true;
+  } catch (error) {
+    console.error("Failed to initialize DB:", error);
+    return false;
+  }
+};
+
+export const saveMedia = async (id: string, data: { url: string, mimeType: string, name?: string }): Promise<void> => {
+  const db = await getDB();
   return new Promise((resolve, reject) => {
-    if (!db) return reject('DB not initialized');
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.put({ id, ...data });
@@ -45,9 +55,9 @@ export const saveMedia = (id: string, data: { url: string, mimeType: string, nam
   });
 };
 
-export const getMedia = (id: string): Promise<{ url: string, mimeType: string, name?: string } | null> => {
+export const getMedia = async (id: string): Promise<{ url: string, mimeType: string, name?: string } | null> => {
+  const db = await getDB();
   return new Promise((resolve, reject) => {
-    if (!db) return reject('DB not initialized');
     const transaction = db.transaction([STORE_NAME], 'readonly');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.get(id);
@@ -62,9 +72,9 @@ export const getMedia = (id: string): Promise<{ url: string, mimeType: string, n
   });
 };
 
-export const deleteMedia = (id: string): Promise<void> => {
+export const deleteMedia = async (id: string): Promise<void> => {
+  const db = await getDB();
   return new Promise((resolve, reject) => {
-    if (!db) return reject('DB not initialized');
     const transaction = db.transaction([STORE_NAME], 'readwrite');
     const store = transaction.objectStore(STORE_NAME);
     const request = store.delete(id);
